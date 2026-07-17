@@ -117,6 +117,8 @@ public:
     uint32_t GetNumWorkerConnections() const;
 
 protected:
+    // bool InitializeFromDTLTO();
+
     bool GetTargets( const Array<AString> & targets, Dependencies & outDeps ) const;
 
     void UpdateBuildStatus( const Node * node );

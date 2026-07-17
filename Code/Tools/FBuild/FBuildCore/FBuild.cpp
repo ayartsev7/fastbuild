@@ -18,6 +18,8 @@
 #include "Graph/SettingsNode.h"
 #include "Helpers/BuildProfiler.h"
 #include "Helpers/CompilationDatabase.h"
+// #include "Helpers/DTLTOGraphBuilder.h"
+// #include "Helpers/DTLTOJsonParser.h"
 #include "Helpers/SourceFileTargetResolver.h"
 #include "Protocol/Client.h"
 #include "Protocol/Protocol.h"
@@ -153,6 +155,12 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
         return false;
     }
 
+    // // DTLTO distributor mode: synthesize the graph from an LLVM DTLTO JSON
+    // if ( m_Options.m_DTLTOFile.IsEmpty() == false )
+    // {
+    //     return InitializeFromDTLTO();
+    // }
+
     const char * bffFile = m_Options.m_ConfigFile.IsEmpty() ? GetDefaultBFFFileName()
                                                             : m_Options.m_ConfigFile.Get();
 
@@ -221,6 +229,20 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
 
     return true;
 }
+
+// InitializeFromDTLTO
+//------------------------------------------------------------------------------
+/*
+bool FBuild::InitializeFromDTLTO()
+{
+    PROFILE_FUNCTION;
+    BuildProfilerScope buildProfileScope( "InitializeFromDTLTO" );
+
+    // Read the DTLTO JSON produced by the linker
+
+    return true;
+}
+*/
 
 // Build
 //------------------------------------------------------------------------------

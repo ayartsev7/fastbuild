@@ -11,6 +11,7 @@
 
 // Forward Declarations
 //------------------------------------------------------------------------------
+class CompilerNode;
 class Node;
 class NodeGraph;
 
@@ -24,16 +25,11 @@ public:
     DTLTOGraphBuilder( const DTLTOGraphBuilder & other ) = delete;
     DTLTOGraphBuilder & operator=( const DTLTOGraphBuilder & other ) = delete;
 
-    // build an ExecNode-per-job graph, grouped under an Alias.
+    // One ObjectList per job, grouped under an Alias.
     Node * BuildGraph( const DTLTOData & data, const AString & aliasName );
 
 private:
-    Node * CreateExecNodeForJob( const DTLTOData & data, const DTLTOData::Job & job );
-
-    static void BuildArgumentsString( const Array<AString> & commonArgs,
-                                      const Array<AString> & jobArgs,
-                                      AString & outArguments );
-    static void AppendQuotedArg( const AString & arg, AString & out );
+    CompilerNode * CreateCompilerNode( const AString & compilerExe );
 
     NodeGraph & m_NodeGraph;
 };

@@ -9,12 +9,14 @@
 #include "Tools/FBuild/FBuildCore/BFF/Functions/Function.h"
 #include "Tools/FBuild/FBuildCore/FLog.h"
 #include "Tools/FBuild/FBuildCore/Graph/AliasNode.h"
-#include "Tools/FBuild/FBuildCore/Graph/ExecNode.h"
+#include "Tools/FBuild/FBuildCore/Graph/CompilerNode.h"
 #include "Tools/FBuild/FBuildCore/Graph/Node.h"
 #include "Tools/FBuild/FBuildCore/Graph/NodeGraph.h"
+#include "Tools/FBuild/FBuildCore/Graph/ObjectListNode.h"
 
 // Core
 #include "Core/Env/Assert.h"
+#include "Core/FileIO/PathUtils.h"
 #include "Core/Reflection/ReflectedProperty.h"
 #include "Core/Reflection/ReflectionInfo.h"
 #include "Core/Strings/AStackString.h"
@@ -46,16 +48,21 @@ Node * DTLTOGraphBuilder::BuildGraph( const DTLTOData & data, const AString & al
         return nullptr;
     }
 
-    // Build the job nodes
+    CompilerNode * compiler = CreateCompilerNode( data.m_CommonArgs[ 0 ] );
+    if ( compiler == nullptr )
+    {
+        return nullptr; // CreateCompilerNode will have emitted an error
+    }
+
     StackArray<Node *> jobNodes;
     for ( const DTLTOData::Job & job : data.m_Jobs )
     {
-        Node * execNode = CreateExecNodeForJob( data, job );
-        if ( execNode == nullptr )
+        Node * objectList = CreateObjectListForJob( data, job, compiler );
+        if ( objectList == nullptr )
         {
-            return nullptr; // CreateExecNodeForJob will have emitted an error
+            return nullptr; // CreateObjectListForJob will have emitted an error
         }
-        jobNodes.Append( execNode );
+        jobNodes.Append( objectList );
     }
 
     // group all jobs under a single root to build
@@ -74,91 +81,50 @@ Node * DTLTOGraphBuilder::BuildGraph( const DTLTOData & data, const AString & al
     return root;
 }
 
-// CreateExecNodeForJob
+// CreateCompilerNode
 //------------------------------------------------------------------------------
-Node * DTLTOGraphBuilder::CreateExecNodeForJob( const DTLTOData & data, const DTLTOData::Job & job )
+CompilerNode * DTLTOGraphBuilder::CreateCompilerNode( const AString & compilerExe )
 {
-    // node name is the primary output file
-    AStackString<512> nodeName;
-    NodeGraph::CleanPath( job.m_Outputs[ 0 ], nodeName );
-    // TODO: support multiple outputs? (DTLTO JSON can have multiple outputs)
+    const AStackString compilerName( "Compiler-DTLTO" );
+    if ( Node * existing = m_NodeGraph.FindNode( compilerName ) )
+    {
+        return existing->CastTo<CompilerNode>();
+    }
 
-    AStackString<> arguments;
-    BuildArgumentsString( data.m_CommonArgs, job.m_Args, arguments );
+    CompilerNode * compiler = m_NodeGraph.CreateNode<CompilerNode>( compilerName );
+    const ReflectionInfo * ri = compiler->GetReflectionInfoV();
+    VERIFY( ri->SetProperty( compiler, "Executable", compilerExe ) );
+    VERIFY( ri->SetProperty( compiler, "CompilerFamily", AStackString( "custom" ) ) ); // no host-side -E on bitcode
+    VERIFY( ri->SetProperty( compiler, "SimpleDistributionMode", true ) );
+    VERIFY( ri->SetProperty( compiler, "AllowDistribution", true ) );
 
-    ExecNode * execNode = m_NodeGraph.CreateNode<ExecNode>( nodeName );
-
-    const ReflectionInfo * ri = execNode->GetReflectionInfoV();
-    VERIFY( ri->SetProperty( execNode, "ExecExecutable", data.m_CommonArgs[ 0 ] ) ); // compiler
-    VERIFY( ri->SetProperty( execNode, "ExecArguments", arguments ) );
-    VERIFY( ri->SetProperty( execNode, "ExecInput", job.m_Inputs ) );
-    VERIFY( ri->SetProperty( execNode, "ExecUseStdOutAsOutput", false ) );
-
-    if ( !execNode->Initialize( m_NodeGraph, nullptr, Function::Find( AStackString( "Exec" ) ) ) )
+    if ( !compiler->Initialize( m_NodeGraph, nullptr, Function::Find( AStackString( "Compiler" ) ) ) )
     {
         return nullptr;
     }
-
-    return execNode;
+    return compiler;
 }
 
-// BuildArgumentsString
+// CreateObjectListForJob
 //------------------------------------------------------------------------------
-/*static*/ void DTLTOGraphBuilder::BuildArgumentsString( const Array<AString> & commonArgs,
-                                                         const Array<AString> & jobArgs,
-                                                         AString & outArguments )
+Node * DTLTOGraphBuilder::CreateObjectListForJob( const DTLTOData & data,
+                                                  const DTLTOData::Job & job,
+                                                  CompilerNode * compiler )
 {
-    outArguments.Clear();
-    // commonArgs[0] is the compiler (passed as ExecExecutable), skip
-    for ( size_t i = 1; i < commonArgs.GetSize(); ++i )
+
+
+    AString inputPath;
+    if ( job.m_Args.IsEmpty() == false )
     {
-        AppendQuotedArg( commonArgs[ i ], outArguments );
-        outArguments += ' ';
+        inputPath = job.m_Args[ 0 ]; //  job.m_Args[ 0 ] is the input bitcode (???)
     }
-    for ( const AString & arg : jobArgs )
-    {
-        AppendQuotedArg( arg, outArguments );
-        outArguments += ' ';
-    }
-    if ( outArguments.IsEmpty() == false )
-    {
-        outArguments.SetLength( outArguments.GetLength() - 1 ); // remove trailing space
-    }
+
+    // ObjectListNode * objectList = m_NodeGraph.CreateNode<ObjectListNode>( listName );
+    // const ReflectionInfo * ri = objectList->GetReflectionInfoV();
+    // VERIFY( ri->SetProperty( objectList, "Compiler", compiler->GetName() ) );
+    // VERIFY( ri->SetProperty( objectList, "CompilerOptions", compilerOptions ) );
+    // VERIFY( ri->SetProperty( objectList, "CompilerOutputPath", outputDir ) );
+    // VERIFY( ri->SetProperty( objectList, "AllowDistribution", true ) );
+
+    return nullptr;
 }
-
-// AppendQuotedArg
-//------------------------------------------------------------------------------
-/*static*/ void DTLTOGraphBuilder::AppendQuotedArg( const AString & arg, AString & out )
-{
-    const bool hasQuote = ( arg.Find( '"' ) != nullptr );
-    const bool needsQuotes = arg.IsEmpty() ||
-                             hasQuote ||
-                             arg.Find( ' ' ) ||
-                             arg.Find( '\t' );
-    if ( !needsQuotes )
-    {
-        out += arg;
-        return;
-    }
-
-    out += '"';
-    if ( !hasQuote )
-    {
-        out += arg;
-    }
-    else
-    {
-        // escape embedded quotes
-        for ( const char * pos = arg.Get(); pos != arg.GetEnd(); ++pos )
-        {
-            if ( *pos == '"' )
-            {
-                out += '\\';
-            }
-            out += *pos;
-        }
-    }
-    out += '"';
-}
-
-//------------------------------------------------------------------------------
