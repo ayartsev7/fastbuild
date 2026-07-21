@@ -25,11 +25,17 @@ public:
     DTLTOGraphBuilder( const DTLTOGraphBuilder & other ) = delete;
     DTLTOGraphBuilder & operator=( const DTLTOGraphBuilder & other ) = delete;
 
-    // One ObjectList per job, grouped under an Alias.
     Node * BuildGraph( const DTLTOData & data, const AString & aliasName );
 
 private:
     CompilerNode * CreateCompilerNode( const AString & compilerExe );
+    Node * CreateObjectListForJob( const Array<AString> & commonArgs,
+                                   const DTLTOData::Job & job,
+                                   CompilerNode * compiler );
+
+    static void BuildCompilerOptions( const Array<AString> & commonArgs,
+                                      const Array<AString> & jobArgs,
+                                      AString & outOptions );
 
     NodeGraph & m_NodeGraph;
 };
