@@ -156,7 +156,8 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const Array<AString> & commonA
     if ( !outputFileName.BeginsWith( inputBase ) )
     {
         FLOG_ERROR( "DTLTO: output '%s' does not begin with input base '%s'",
-                    outputFileName.Get(), inputBase.Get() );
+                    outputFileName.Get(),
+                    inputBase.Get() );
         return nullptr;
     }
     const AStackString<> outputExtension( outputFileName.Get() + inputBase.GetLength(), outputFileName.GetEnd() );
