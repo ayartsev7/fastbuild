@@ -118,6 +118,7 @@ public:
 
 protected:
     bool InitializeFromDTLTO();
+    void InitializeCache();
 
     bool GetTargets( const Array<AString> & targets, Dependencies & outDeps ) const;
 

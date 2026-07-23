@@ -199,11 +199,19 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
         return false;
     }
 
-    const SettingsNode * settings = m_DependencyGraph->GetSettings();
+    InitializeCache();
 
+    return true;
+}
+
+// InitializeCache
+//------------------------------------------------------------------------------
+void FBuild::InitializeCache()
+{
     // if the cache is enabled, make sure the path is set and accessible
     if ( m_Options.m_UseCacheRead || m_Options.m_UseCacheWrite || m_Options.m_CacheInfo || m_Options.m_CacheTrim )
     {
+        const SettingsNode * settings = m_DependencyGraph->GetSettings();
         if ( !settings->GetCachePluginDLL().IsEmpty() )
         {
             m_Cache = FNEW( CachePlugin( settings->GetCachePluginDLL() ) );
@@ -226,8 +234,6 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
             m_Cache = nullptr;
         }
     }
-
-    return true;
 }
 
 // InitializeFromDTLTO
@@ -264,13 +270,24 @@ bool FBuild::InitializeFromDTLTO()
     m_DependencyGraph = FNEW( NodeGraph );
     m_DependencyGraph->CreateDefaultSettingsNode();
 
+    // TODO: A target other than "all" currently causes the build to fail.
+    if ( ( m_Options.m_Targets.IsEmpty() == false ) &&
+        // "all" is the default target
+         ( ( m_Options.m_Targets.GetSize() != 1 ) || ( m_Options.m_Targets[ 0 ] != "all" ) ) )
+    {
+        FLOG_WARN( "Only default target 'all' is supported in DTLTO mode" );
+    }
+
     DTLTOGraphBuilder builder( *m_DependencyGraph );
-    if ( builder.BuildGraph( parser.GetData(), ????????????? ) == nullptr )
+    if ( builder.BuildGraph( parser.GetData(), AStackString<>( "all" ) ) == nullptr )
     {
         return false;
     }
 
-    // !!! reuse caching logic from "bool FBuild::Initialize( const char * nodeGraphDBFile )
+    // DTLTO graphs are ephemeral; don't save a dependency database
+    m_Options.m_SaveDBOnCompletion = false;
+
+    InitializeCache();
 
     return true;
 }
