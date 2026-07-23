@@ -18,8 +18,8 @@
 #include "Graph/SettingsNode.h"
 #include "Helpers/BuildProfiler.h"
 #include "Helpers/CompilationDatabase.h"
-// #include "Helpers/DTLTOGraphBuilder.h"
-// #include "Helpers/DTLTOJsonParser.h"
+#include "Helpers/DTLTOGraphBuilder.h"
+#include "Helpers/DTLTOJsonParser.h"
 #include "Helpers/SourceFileTargetResolver.h"
 #include "Protocol/Client.h"
 #include "Protocol/Protocol.h"
@@ -155,11 +155,11 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
         return false;
     }
 
-    // // DTLTO distributor mode: synthesize the graph from an LLVM DTLTO JSON
-    // if ( m_Options.m_DTLTOFile.IsEmpty() == false )
-    // {
-    //     return InitializeFromDTLTO();
-    // }
+    // DTLTO distributor mode: synthesize the graph from an LLVM DTLTO JSON
+    if ( m_Options.m_DTLTOFile.IsEmpty() == false )
+    {
+        return InitializeFromDTLTO();
+    }
 
     const char * bffFile = m_Options.m_ConfigFile.IsEmpty() ? GetDefaultBFFFileName()
                                                             : m_Options.m_ConfigFile.Get();
@@ -232,17 +232,48 @@ bool FBuild::Initialize( const char * nodeGraphDBFile )
 
 // InitializeFromDTLTO
 //------------------------------------------------------------------------------
-/*
 bool FBuild::InitializeFromDTLTO()
 {
     PROFILE_FUNCTION;
     BuildProfilerScope buildProfileScope( "InitializeFromDTLTO" );
 
-    // Read the DTLTO JSON produced by the linker
+    // read and parse the DTLTO JSON
+    FileStream f;
+    if ( f.Open( m_Options.m_DTLTOFile.Get(), FileStream::READ_ONLY ) == false )
+    {
+        FLOG_ERROR( "DTLTO: failed to open '%s'", m_Options.m_DTLTOFile.Get() );
+        return false;
+    }
+    const uint64_t fileSize = f.GetFileSize();
+    AString buffer;
+    buffer.SetLength( (uint32_t)fileSize );
+    if ( f.ReadBuffer( buffer.Get(), fileSize ) != fileSize )
+    {
+        FLOG_ERROR( "DTLTO: failed to read '%s'", m_Options.m_DTLTOFile.Get() );
+        return false;
+    }
+    f.Close();
+
+    DTLTOJsonParser parser( buffer );
+    if ( parser.Parse() == false )
+    {
+        return false;
+    }
+
+    // build node graph from json data
+    m_DependencyGraph = FNEW( NodeGraph );
+    m_DependencyGraph->CreateDefaultSettingsNode();
+
+    DTLTOGraphBuilder builder( *m_DependencyGraph );
+    if ( builder.BuildGraph( parser.GetData(), ????????????? ) == nullptr )
+    {
+        return false;
+    }
+
+    // !!! reuse caching logic from "bool FBuild::Initialize( const char * nodeGraphDBFile )
 
     return true;
 }
-*/
 
 // Build
 //------------------------------------------------------------------------------
