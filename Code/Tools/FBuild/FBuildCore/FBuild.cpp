@@ -270,14 +270,6 @@ bool FBuild::InitializeFromDTLTO()
     m_DependencyGraph = FNEW( NodeGraph );
     m_DependencyGraph->CreateDefaultSettingsNode();
 
-    // TODO: A target other than "all" currently causes the build to fail.
-    if ( ( m_Options.m_Targets.IsEmpty() == false ) &&
-        // "all" is the default target
-         ( ( m_Options.m_Targets.GetSize() != 1 ) || ( m_Options.m_Targets[ 0 ] != "all" ) ) )
-    {
-        FLOG_WARN( "Only default target 'all' is supported in DTLTO mode" );
-    }
-
     DTLTOGraphBuilder builder( *m_DependencyGraph );
     if ( builder.BuildGraph( parser.GetData(), AStackString<>( "all" ) ) == nullptr )
     {

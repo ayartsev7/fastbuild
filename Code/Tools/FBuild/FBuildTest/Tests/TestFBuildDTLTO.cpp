@@ -9,8 +9,6 @@
 //------------------------------------------------------------------------------
 TEST_GROUP( TestFBuildDTLTO, FBuildTest )
 {
-protected:
-    void MakeValidDTLTOJson( const char * jsonFile ) const;
 };
 
 //------------------------------------------------------------------------------
@@ -19,7 +17,20 @@ TEST_CASE( TestFBuildDTLTO, InitializeFromDTLTO )
     const char * testDir = "../tmp/Test/FBuildDTLTO/";
     const char * jsonFile = "../tmp/Test/FBuildDTLTO/dist-file.json";
     EnsureDirExists( testDir );
-    MakeValidDTLTOJson( jsonFile );
+    MakeFile( jsonFile, R"({
+        "common": {
+            "linker_output": "app.exe",
+            "args": [ "clang.exe" ],
+            "inputs": []
+        },
+        "jobs": [
+            {
+                "args": [ "input.obj" ],
+                "inputs": [ "input.obj" ],
+                "outputs": [ "input.1.native.o" ]
+            }
+        ]
+    })" );
 
     FBuildTestOptions options;
     options.m_DTLTOFile = jsonFile;
@@ -62,41 +73,3 @@ TEST_CASE( TestFBuildDTLTO, MalformedDTLTOJson )
     TEST_ASSERT( GetRecordedOutput().Find( "DTLTO: expected '{'" ) );
 }
 
-//------------------------------------------------------------------------------
-TEST_CASE( TestFBuildDTLTO, NonDefaultTargetWarns )
-{
-    const char * testDir = "../tmp/Test/FBuildDTLTO/";
-    const char * jsonFile = "../tmp/Test/FBuildDTLTO/non-default-target-dist-file.json";
-    EnsureDirExists( testDir );
-    MakeValidDTLTOJson( jsonFile );
-
-    FBuildTestOptions options;
-    options.m_DTLTOFile = jsonFile;
-    options.m_Targets.EmplaceBack( "target" );
-
-    FBuildForTest fBuild( options );
-    TEST_ASSERT( fBuild.Initialize() );
-    TEST_ASSERT( GetRecordedOutput().Find( "Only default target 'all' is supported in DTLTO mode" ) );
-}
-
-// MakeValidDTLTOJson
-//------------------------------------------------------------------------------
-void TestFBuildDTLTO::MakeValidDTLTOJson( const char * jsonFile ) const
-{
-    MakeFile( jsonFile, R"({
-        "common": {
-            "linker_output": "app.exe",
-            "args": [ "clang.exe" ],
-            "inputs": []
-        },
-        "jobs": [
-            {
-                "args": [ "input.obj" ],
-                "inputs": [ "input.obj" ],
-                "outputs": [ "input.1.native.o" ]
-            }
-        ]
-    })" );
-}
-
-//------------------------------------------------------------------------------
