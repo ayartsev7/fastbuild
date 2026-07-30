@@ -1157,7 +1157,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
         }
     }
 
-    // ?????? make separate flag like dtlto_enabled?
+    // Simple distribution mode can be cached (used by DTLTO)
     if ( compilerNode->SimpleDistributionMode() && isCacheableCompiler )
     {
         flags.Set( CompilerFlags::FLAG_CAN_BE_CACHED );
@@ -1361,9 +1361,26 @@ const AString & ObjectNode::GetCacheName( Job * job ) const
 
     // hash the pre-processed input data
     ASSERT( m_LightCacheKey || job->GetData() );
-    const uint64_t preprocessedSourceKey = m_LightCacheKey ? m_LightCacheKey
-                                                           : xxHash3::Calc64Big( job->GetData(), job->GetDataSize() );
+    uint64_t preprocessedSourceKey = m_LightCacheKey ? m_LightCacheKey
+                                                     : xxHash3::Calc64Big( job->GetData(), job->GetDataSize() );
     ASSERT( preprocessedSourceKey );
+
+    // if ( m_OwnerObjectList && ( m_OwnerObjectList->GetCacheKeyInputFiles().IsEmpty() == false ) )
+    // {
+    //     xxHash3Accumulator accumulator;
+    //     accumulator.AddData( &preprocessedSourceKey, sizeof( preprocessedSourceKey ) );
+    //     for ( const AString & extraInput : m_OwnerObjectList->GetCacheKeyInputFiles() )
+    //     {
+    //         FileStream fs;
+    //         VERIFY( fs.Open( extraInput.Get(), FileStream::READ_ONLY ) );
+    //         const uint64_t contentSize = fs.GetFileSize();
+    //         UniquePtr<void, FreeDeletor> mem( ALLOC( contentSize ) );
+    //         VERIFY( fs.Read( mem.Get(), contentSize ) == contentSize );
+    //         accumulator.AddData( &contentSize, sizeof( contentSize ) );
+    //         accumulator.AddDataBig( mem.Get(), contentSize );
+    //     }
+    //     preprocessedSourceKey = accumulator.Finalize64();
+    // }
 
     // hash the build "environment"
     // TODO:B Exclude preprocessor control defines (the preprocessed input has considered those already)
