@@ -56,6 +56,8 @@ public:
     [[nodiscard]] bool IsCachingAllowed() const { return m_AllowCaching; }
     [[nodiscard]] bool IsDistributionAllowed() const { return m_AllowDistribution; }
 
+    const Array<AString> & GetCacheKeyInputFiles() const { return m_CacheKeyInputFiles; }
+
     void GetObjectFileName( const AString & fileName, const AString & baseDir, AString & objFile );
 
     [[nodiscard]] const CompilerInfoNode * GetCompilerInfo() const { return m_CompilerInfoNode; }
@@ -106,6 +108,7 @@ protected:
     AString m_CompilerInputFilesRoot;
     Array<AString> m_CompilerInputObjectLists;
     Array<AString> m_CompilerForceUsing;
+    Array<AString> m_CacheKeyInputFiles;
     bool m_CompilerInputAllowNoFiles = false;
     bool m_CompilerInputPathRecurse = true;
     bool m_CompilerOutputKeepBaseExtension = false;

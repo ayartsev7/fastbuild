@@ -1157,6 +1157,12 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
         }
     }
 
+    // ?????? make separate flag like dtlto_enabled?
+    if ( compilerNode->SimpleDistributionMode() && isCacheableCompiler )
+    {
+        flags.Set( CompilerFlags::FLAG_CAN_BE_CACHED );
+    }
+
     return flags;
 }
 

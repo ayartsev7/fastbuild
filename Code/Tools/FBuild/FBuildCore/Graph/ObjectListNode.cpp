@@ -52,6 +52,7 @@ REFLECT_NODE_BEGIN( ObjectListNode, Node )
     REFLECT( m_DeoptimizeWritableFilesWithToken )
     REFLECT( m_AllowDistribution )
     REFLECT( m_AllowCaching )
+    REFLECT( m_CacheKeyInputFiles, MetaFile() )
     REFLECT( m_Hidden )
     // Precompiled Headers
     REFLECT( m_PCHInputFile, MetaFile() )

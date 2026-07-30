@@ -29,7 +29,7 @@ public:
 
 private:
     CompilerNode * CreateCompilerNode( const AString & compilerExe );
-    Node * CreateObjectListForJob( const Array<AString> & commonArgs,
+    Node * CreateObjectListForJob( const DTLTOData & data,
                                    const DTLTOData::Job & job,
                                    CompilerNode * compiler );
 

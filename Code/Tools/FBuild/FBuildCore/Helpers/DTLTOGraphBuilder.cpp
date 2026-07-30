@@ -59,7 +59,7 @@ Node * DTLTOGraphBuilder::BuildGraph( const DTLTOData & data, const AString & al
     StackArray<Node *> jobNodes;
     for ( const DTLTOData::Job & job : data.m_Jobs )
     {
-        Node * objectList = CreateObjectListForJob( data.m_CommonArgs, job, compiler );
+        Node * objectList = CreateObjectListForJob( data, job, compiler );
         if ( objectList == nullptr )
         {
             return nullptr;
@@ -112,7 +112,7 @@ CompilerNode * DTLTOGraphBuilder::CreateCompilerNode( const AString & compilerEx
 
 // CreateObjectListForJob
 //------------------------------------------------------------------------------
-Node * DTLTOGraphBuilder::CreateObjectListForJob( const Array<AString> & commonArgs,
+Node * DTLTOGraphBuilder::CreateObjectListForJob( const DTLTOData & data,
                                                   const DTLTOData::Job & job,
                                                   CompilerNode * compiler )
 {
@@ -128,7 +128,7 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const Array<AString> & commonA
         return nullptr;
     }
     AStackString<> compilerOptions;
-    BuildCompilerOptions( commonArgs, job.m_Args, compilerOptions );
+    BuildCompilerOptions( data.m_CommonArgs, job.m_Args, compilerOptions );
 
     AStackString<> cleanOutput;
     NodeGraph::CleanPath( job.m_Outputs[ 0 ], cleanOutput );
@@ -167,6 +167,24 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const Array<AString> & commonA
     StackArray<AString> inputFiles;
     inputFiles.EmplaceBack( cleanInput );
 
+    // Extra files for the cache key (ThinLTO index / imports)
+    StackArray<AString> cacheKeyInputFiles;
+    for ( const AString & input : job.m_Inputs )
+    {
+        AStackString<> cleanPath;
+        NodeGraph::CleanPath( input, cleanPath );
+        if ( PathUtils::ArePathsEqual( cleanPath, cleanInput ) == false ) //
+        {
+            cacheKeyInputFiles.EmplaceBack( cleanPath );
+        }
+    }
+    for ( const AString & input : data.m_CommonInputs )
+    {
+        AStackString<> cleanPath;
+        NodeGraph::CleanPath( input, cleanPath );
+        cacheKeyInputFiles.EmplaceBack( cleanPath );
+    }
+
     // Set the properties of the ObjectListNode
     const ReflectionInfo * ri = result->GetReflectionInfoV();
     VERIFY( ri->SetProperty( result, "Compiler", compiler->GetName() ) );
@@ -175,6 +193,7 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const Array<AString> & commonA
     VERIFY( ri->SetProperty( result, "CompilerOutputExtension", outputExtension ) );
     VERIFY( ri->SetProperty( result, "AllowDistribution", true ) );
     VERIFY( ri->SetProperty( result, "CompilerInputFiles", inputFiles ) );
+    VERIFY( ri->SetProperty( result, "CacheKeyInputFiles", cacheKeyInputFiles ) );
 
     if ( !result->Initialize( m_NodeGraph, nullptr, Function::Find( AStackString( "ObjectList" ) ) ) )
     {
