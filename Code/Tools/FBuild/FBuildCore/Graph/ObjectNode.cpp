@@ -1435,6 +1435,12 @@ bool ObjectNode::GetCacheKeyInputFilesHash( uint64_t primaryInputHash, uint64_t 
 //------------------------------------------------------------------------------
 uint32_t ObjectNode::GetCommandLineKey( Job * job ) const
 {
+    // DTLTO args embed the linker pid, so a stable substitute is used
+    if ( ( m_OwnerObjectList != nullptr ) && ( m_OwnerObjectList->GetCacheKeyCompilerOptions().IsEmpty() == false ) )
+    {
+        return xxHash::Calc32( m_OwnerObjectList->GetCacheKeyCompilerOptions() );
+    }
+
     Args args;
     const bool useDeoptimization = false;
     const bool showIncludes = false;

@@ -35,7 +35,8 @@ private:
 
     static void BuildCompilerOptions( const Array<AString> & commonArgs,
                                       const Array<AString> & jobArgs,
-                                      AString & outOptions );
+                                      AString & outOptions,
+                                      AString & outOptionsForCacheKey );
 
     NodeGraph & m_NodeGraph;
 };
