@@ -372,3 +372,31 @@ TEST_CASE( TestDTLTOGraphBuilder, ReusesExistingCompilerNode )
 }
 
 //------------------------------------------------------------------------------
+TEST_CASE( TestDTLTOGraphBuilder, CacheKeyCompilerOptions )
+{
+    FBuild fBuild;
+    NodeGraph nodeGraph;
+
+    DTLTOData data;
+    data.m_CommonArgs.EmplaceBack( "clang.exe" );
+    data.m_CommonArgs.EmplaceBack( "-O2" );
+    DTLTOData::Job & job = data.m_Jobs.EmplaceBack();
+    job.m_Args.EmplaceBack( "a.obj" );
+    job.m_Args.EmplaceBack( "-fthinlto-index=a.thinlto.bc" );
+    job.m_Args.EmplaceBack( "-jobflag" );
+    job.m_Args.EmplaceBack( "-o" );
+    job.m_Args.EmplaceBack( "a.o" );
+    job.m_Outputs.EmplaceBack( "a.o" );
+
+    DTLTOGraphBuilder builder( nodeGraph );
+    TEST_ASSERT( builder.BuildGraph( data, AStackString<>( "dtlto-all" ) ) );
+
+    Node * jobNode = FindObjectList( nodeGraph, "a.o" );
+    TEST_ASSERT( jobNode );
+
+    AStackString<> cacheKeyOptions;
+    TEST_ASSERT( jobNode->GetReflectionInfoV()->GetProperty( jobNode, "CacheKeyCompilerOptions", &cacheKeyOptions ) );
+    TEST_ASSERT( cacheKeyOptions == "-O2 -jobflag a.obj" );
+}
+
+//------------------------------------------------------------------------------
