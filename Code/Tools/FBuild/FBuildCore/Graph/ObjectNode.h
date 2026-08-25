@@ -107,6 +107,7 @@ public:
             FLAG_DYNAMIC_DEOPT = 0x8000000,
             FLAG_NOSTDINC = 0x10000000,
             FLAG_NOSTDINCPP = 0x20000000,
+            FLAG_HAS_EXTRA_INPUT_FILES = 0x40000000,
         };
 
         void Set( Flag flag ) { m_Flags |= flag; }
@@ -148,6 +149,7 @@ public:
     bool IsWarningsAsErrorsClangGCC() const { return m_CompilerFlags.IsWarningsAsErrorsClangGCC(); }
     bool IsUsingGcovCoverage() const { return m_CompilerFlags.IsUsingGcovCoverage(); }
     bool IsUsingDynamicDeopt() const { return m_CompilerFlags.IsUsingDynamicDeopt(); }
+    bool HasExtraInputFilesForDistribution() const;
 
     virtual void SaveRemote( IOStream & stream ) const override;
     static Node * LoadRemote( IOStream & stream );
@@ -309,6 +311,7 @@ protected:
 
     // Not serialized
     Array<AString> m_Includes;
+    Array<AString> m_RemoteExtraInputFiles;
 
 #if defined( ENABLE_FAKE_SYSTEM_FAILURE )
     // Fake system failure for tests

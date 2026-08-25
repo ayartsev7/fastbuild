@@ -1222,7 +1222,15 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     // Save minimal information for the remote worker
     stream.Write( m_Name );
     stream.Write( GetSourceFile()->GetName() );
-    stream.Write( m_CompilerFlags.m_Flags );
+
+    uint32_t flags = m_CompilerFlags.m_Flags;
+    StackArray<AString> extraInputFiles;
+    if ( HasExtraInputFilesForDistribution() )
+    {
+        flags |= CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES;
+        // TODO: fill extraInputFiles
+    }
+    stream.Write( flags );
 
     // TODO:B would be nice to make ShouldUseDeoptimization cache the result for this build
     // instead of opening the file again.
@@ -1257,6 +1265,11 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     driver->AddAdditionalArgs_PreparePreprocessedForRemote( fullArgs );
 
     stream.Write( fullArgs.GetRawArgs() );
+
+    if ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES )
+    {
+        stream.Write( extraInputFiles );
+    }
 }
 
 // GetCompiler
@@ -2040,6 +2053,14 @@ bool ObjectNode::LoadStaticSourceFileForDistribution( const Args & fullArgs, Job
     return true;
 }
 
+// HasExtraInputFilesForDistribution
+//------------------------------------------------------------------------------
+bool ObjectNode::HasExtraInputFilesForDistribution() const
+{
+    return ( m_OwnerObjectList != nullptr ) &&
+           ( m_OwnerObjectList->GetCacheKeyInputFiles().IsEmpty() == false );
+}
+
 // TransferPreprocessedData
 //------------------------------------------------------------------------------
 void ObjectNode::TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const
@@ -2326,8 +2347,8 @@ Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs
     {
         ASSERT( job->GetToolManifest() );
         job->GetToolManifest()->GetRemoteFilePath( 0, compiler );
-        job->GetToolManifest()->GetRemotePath( workingDir );
-    }
+            job->GetToolManifest()->GetRemotePath( workingDir );
+        }
 
     // spawn the process
     CompileHelper ch( true, job->GetAbortFlagPointer() );
