@@ -238,6 +238,7 @@ protected:
 
     BuildResult BuildPreprocessedOutput( const Args & fullArgs, Job * job, bool useDeoptimization ) const;
     bool LoadStaticSourceFileForDistribution( const Args & fullArgs, Job * job, bool useDeoptimization ) const;
+    const Array<AString> & GetExtraInputFilesForDistribution() const;
     void TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const;
     bool WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;
     BuildResult BuildFinalOutput( Job * job, const Args & fullArgs ) const;
@@ -311,7 +312,7 @@ protected:
 
     // Not serialized
     Array<AString> m_Includes;
-    Array<AString> m_RemoteExtraInputFiles;
+    Array<AString> m_ExtraInputFiles;
 
 #if defined( ENABLE_FAKE_SYSTEM_FAILURE )
     // Fake system failure for tests
@@ -326,7 +327,8 @@ public:
     ObjectNodeRemote( AString && objectName,
                       NodeProxy * srcFile,
                       AString && compilerOptions,
-                      uint32_t flags );
+                      uint32_t flags,
+                      Array<AString> && extraInputFiles );
     virtual ~ObjectNodeRemote() override;
 
 protected:

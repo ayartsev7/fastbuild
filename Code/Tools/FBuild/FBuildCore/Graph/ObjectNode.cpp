@@ -881,6 +881,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     AString sourceFile;
     uint32_t flags;
     AString compilerArgs;
+    Array<AString> extraInputFiles;
     if ( ( stream.Read( name ) == false ) ||
          ( stream.Read( sourceFile ) == false ) ||
          ( stream.Read( flags ) == false ) ||
@@ -888,10 +889,15 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     {
         return nullptr;
     }
+    if ( ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES ) &&
+         ( stream.Read( extraInputFiles ) == false ) )
+    {
+        return nullptr;
+    }
 
     NodeProxy * srcFile = FNEW( NodeProxy( Move( sourceFile ) ) );
 
-    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags ) );
+    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags, Move( extraInputFiles ) ) );
 }
 
 // DetermineFlags
@@ -2058,7 +2064,16 @@ bool ObjectNode::LoadStaticSourceFileForDistribution( const Args & fullArgs, Job
 bool ObjectNode::HasExtraInputFilesForDistribution() const
 {
     return ( m_OwnerObjectList != nullptr ) &&
-           ( m_OwnerObjectList->GetCacheKeyInputFiles().IsEmpty() == false );
+           ( GetExtraInputFilesForDistribution().IsEmpty() == false );
+}
+
+// GetExtraInputFilesForDistribution
+//------------------------------------------------------------------------------
+const Array<AString> & ObjectNode::GetExtraInputFilesForDistribution() const
+{
+    // Extra files shipped to workers, same list as CacheKeyInputFiles: DTLTO JSON inputs
+    // both hash into the cache key and must exist on the worker.
+    return m_OwnerObjectList->GetCacheKeyInputFiles();
 }
 
 // TransferPreprocessedData
@@ -2334,7 +2349,7 @@ bool ObjectNode::WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpF
 
 // BuildFinalOutput
 //------------------------------------------------------------------------------
-Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs ) const
+Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs, const AString & remoteWorkingDir ) const
 {
     // Use the remotely synchronized compiler if building remotely
     AStackString compiler;
@@ -2347,8 +2362,15 @@ Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs
     {
         ASSERT( job->GetToolManifest() );
         job->GetToolManifest()->GetRemoteFilePath( 0, compiler );
+        if ( remoteWorkingDir.IsEmpty() == false )
+        {
+            workingDir = remoteWorkingDir;
+        }
+        else
+        {
             job->GetToolManifest()->GetRemotePath( workingDir );
         }
+    }
 
     // spawn the process
     CompileHelper ch( true, job->GetAbortFlagPointer() );
@@ -3106,13 +3128,15 @@ void ObjectNode::CreateDriver( ObjectNode::CompilerFlags flags,
 ObjectNodeRemote::ObjectNodeRemote( AString && objectName,
                                     NodeProxy * srcFile,
                                     AString && compilerOptions,
-                                    uint32_t flags )
+                                    uint32_t flags,
+                                    Array<AString> && extraInputFiles )
     : ObjectNode()
     , m_CompilerOptions( Move( compilerOptions ) )
 {
     SetName( Move( objectName ) );
     m_CompilerFlags.m_Flags = flags;
 
+    m_ExtraInputFiles = Move( extraInputFiles );
     m_StaticDependencies.SetCapacity( 2 );
     m_StaticDependencies.Add( nullptr );
     m_StaticDependencies.Add( srcFile );
