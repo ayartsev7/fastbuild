@@ -477,6 +477,15 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor( Job * job, bool useDeopti
     const bool belowMemoryLimit = ( ( Job::GetTotalLocalDataMemoryUsage() / MEGABYTE ) < FBuild::Get().GetSettings()->GetDistributableJobMemoryLimitMiB() );
     if ( canDistribute && belowMemoryLimit )
     {
+        // pack extra input files for distribution if any
+        if ( HasExtraInputFilesForDistribution() )
+        {
+            if ( PackExtraInputFilesForDistribution( job ) == false )
+            {
+                return BuildResult::eFailed; // PackExtraInputFilesForDistribution will have emitted an error
+            }
+        }
+
         // compress job data
         Compressor c;
         c.Compress( job->GetData(), job->GetDataSize(), FBuild::Get().GetOptions().m_DistributionCompressionLevel );
@@ -2056,6 +2065,30 @@ bool ObjectNode::LoadStaticSourceFileForDistribution( const Args & fullArgs, Job
 
     job->OwnData( mem.ReleaseOwnership(), contentSize );
 
+    return true;
+}
+
+// PackExtraInputFilesForDistribution
+//------------------------------------------------------------------------------
+bool ObjectNode::PackExtraInputFilesForDistribution( Job * job ) const
+{
+    
+    StackArray<AString> fileNames;
+    fileNames.Append( GetSourceFile()->GetName() ); // we recreate job data, so should re-add source file
+    fileNames.Append( GetExtraInputFilesForDistribution() );
+
+    MultiBuffer mb;
+    size_t problemFileIndex = 0;
+    if ( mb.CreateFromFiles( fileNames, &problemFileIndex ) == false )
+    {
+        FLOG_ERROR( "Error: opening file '%s' while packing extra inputs for transport\n",
+                    fileNames[ problemFileIndex ].Get() );
+        return false;
+    }
+
+    size_t dataSize = 0;
+    void * data = mb.Release( dataSize );
+    job->OwnData( data, dataSize );
     return true;
 }
 
