@@ -586,9 +586,17 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     Args fullArgs;
     AStackString tmpDirectoryName;
     AStackString tmpFileName;
+    const bool useExtraInputs = ( job->IsLocal() == false ) && ( m_ExtraInputFiles.IsEmpty() == false );
     if ( usePreProcessedOutput )
     {
-        if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
+        if ( useExtraInputs )
+        {
+            if ( WriteExtraInputFiles( job, tmpDirectoryName, tmpFileName ) == false )
+            {
+                return BuildResult::eFailed; // WriteExtraInputFiles will have emitted an error
+            }
+        }
+        else if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
         {
             return BuildResult::eFailed; // WriteTmpFile will have emitted an error
         }
@@ -636,7 +644,18 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     }
 #endif
 
-    const BuildResult result = BuildFinalOutput( job, fullArgs );
+    const BuildResult result = BuildFinalOutput( job, fullArgs, useExtraInputs ? tmpDirectoryName : AString::GetEmpty() );
+
+    // cleanup extra input files
+    if ( useExtraInputs )
+    {
+        for ( const AString & extraFile : m_ExtraInputFiles )
+        {
+            AStackString extraPath( tmpDirectoryName );
+            extraPath += extraFile;
+            FileIO::FileDelete( extraPath.Get() );
+        }
+    }
 
     // cleanup temp file
     if ( tmpFileName.IsEmpty() == false )
@@ -1243,7 +1262,13 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     if ( HasExtraInputFilesForDistribution() )
     {
         flags |= CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES;
-        // TODO: fill extraInputFiles
+        const AString & workingDir = FBuild::Get().GetOptions().GetWorkingDir();
+        for ( const AString & inputFile : GetExtraInputFilesForDistribution() )
+        {
+            AStackString relativeFileName;
+            PathUtils::GetRelativePath( workingDir, inputFile, relativeFileName );
+            extraInputFiles.EmplaceBack( relativeFileName );
+        }
     }
     stream.Write( flags );
 
@@ -2376,6 +2401,17 @@ bool ObjectNode::WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpF
     {
         job->OwnData( nullptr, 0, false ); // Free compressed buffer
     }
+
+    return true;
+}
+
+// WriteExtraInputFiles
+//------------------------------------------------------------------------------
+bool ObjectNode::WriteExtraInputFiles( Job * job, AString & tmpDirectory, AString & tmpFileName ) const
+{
+    ASSERT( job->GetData() && job->GetDataSize() );
+    ASSERT( job->IsLocal() == false ); // Extra inputs are unpacked only on the worker
+    ASSERT( m_ExtraInputFiles.IsEmpty() == false );
 
     return true;
 }

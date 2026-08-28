@@ -242,7 +242,8 @@ protected:
     const Array<AString> & GetExtraInputFilesForDistribution() const;
     void TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const;
     bool WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;
-    BuildResult BuildFinalOutput( Job * job, const Args & fullArgs ) const;
+    bool WriteExtraInputFiles( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;
+    BuildResult BuildFinalOutput( Job * job, const Args & fullArgs, const AString & remoteWorkingDir = AString::GetEmpty() ) const;
 
     static void HandleSystemFailures( Job * job, int result, const AString & stdOut, const AString & stdErr );
     bool ShouldUseDeoptimization() const;
