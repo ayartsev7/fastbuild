@@ -2413,6 +2413,73 @@ bool ObjectNode::WriteExtraInputFiles( Job * job, AString & tmpDirectory, AStrin
     ASSERT( job->IsLocal() == false ); // Extra inputs are unpacked only on the worker
     ASSERT( m_ExtraInputFiles.IsEmpty() == false );
 
+    const Node * sourceFile = GetSourceFile();
+    const uint32_t sourceNameHash = xxHash3::Calc32( sourceFile->GetName().Get(), sourceFile->GetName().GetLength() );
+
+    MultiBuffer mb( job->GetData(), job->GetDataSize() );
+    if ( job->IsDataCompressed() )
+    {
+        if ( mb.Decompress() == false )
+        {
+            // Decompression failure would indicate a bug
+            job->Error( "Decompression failed. Target: '%s'", GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+    }
+
+    WorkerThread::GetTempFileDirectory( tmpDirectory );
+    tmpDirectory.AppendFormat( "%08X%c", sourceNameHash, NATIVE_SLASH );
+    if ( FileIO::DirectoryCreate( tmpDirectory ) == false )
+    {
+        job->Error( "Failed to create temp directory. Error: %s TmpDir: '%s' Target: '%s'", LAST_ERROR_STR, tmpDirectory.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+
+    // TODO: DTLTO JSON inputs can be absolute; currently we don't support this.
+
+    size_t fileIndex = 0;
+
+    // Extract source file
+    AStackString sourceFileRelativePath;
+    PathUtils::GetRelativePath( job->GetRemoteSourceRoot(), sourceFile->GetName(), sourceFileRelativePath );
+    tmpFileName = tmpDirectory;
+    tmpFileName += sourceFileRelativePath;
+    if ( FileIO::EnsurePathExistsForFile( tmpFileName ) == false )
+    {
+        job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+    if ( mb.ExtractFile( fileIndex++, tmpFileName ) == false )
+    {
+        job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+
+    // Extract extra input files
+    for ( const AString & extraFile : m_ExtraInputFiles )
+    {
+        AStackString extraPath( tmpDirectory );
+        extraPath += extraFile;
+        if ( FileIO::EnsurePathExistsForFile( extraPath ) == false )
+        {
+            job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+        if ( mb.ExtractFile( fileIndex++, extraPath ) == false )
+        {
+            job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+    }
+
+    job->OwnData( nullptr, 0, false ); // Free compressed buffer
+
     return true;
 }
 
