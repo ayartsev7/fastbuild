@@ -150,6 +150,7 @@ public:
     bool IsUsingGcovCoverage() const { return m_CompilerFlags.IsUsingGcovCoverage(); }
     bool IsUsingDynamicDeopt() const { return m_CompilerFlags.IsUsingDynamicDeopt(); }
     bool HasExtraInputFilesForDistribution() const;
+    const Array<AString> & GetExtraInputFiles() const { return m_ExtraInputFiles; }
 
     virtual void SaveRemote( IOStream & stream ) const override;
     static Node * LoadRemote( IOStream & stream );
