@@ -477,6 +477,15 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor( Job * job, bool useDeopti
     const bool belowMemoryLimit = ( ( Job::GetTotalLocalDataMemoryUsage() / MEGABYTE ) < FBuild::Get().GetSettings()->GetDistributableJobMemoryLimitMiB() );
     if ( canDistribute && belowMemoryLimit )
     {
+        // pack extra input files for distribution if any
+        if ( HasExtraInputFilesForDistribution() )
+        {
+            if ( PackExtraInputFilesForDistribution( job ) == false )
+            {
+                return BuildResult::eFailed; // PackExtraInputFilesForDistribution will have emitted an error
+            }
+        }
+
         // compress job data
         Compressor c;
         c.Compress( job->GetData(), job->GetDataSize(), FBuild::Get().GetOptions().m_DistributionCompressionLevel );
@@ -577,9 +586,17 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     Args fullArgs;
     AStackString tmpDirectoryName;
     AStackString tmpFileName;
+    const bool useExtraInputs = ( job->IsLocal() == false ) && ( m_ExtraInputFiles.IsEmpty() == false );
     if ( usePreProcessedOutput )
     {
-        if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
+        if ( useExtraInputs )
+        {
+            if ( WriteExtraInputFiles( job, tmpDirectoryName, tmpFileName ) == false )
+            {
+                return BuildResult::eFailed; // WriteExtraInputFiles will have emitted an error
+            }
+        }
+        else if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
         {
             return BuildResult::eFailed; // WriteTmpFile will have emitted an error
         }
@@ -627,7 +644,18 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     }
 #endif
 
-    const BuildResult result = BuildFinalOutput( job, fullArgs );
+    const BuildResult result = BuildFinalOutput( job, fullArgs, useExtraInputs ? tmpDirectoryName : AString::GetEmpty() );
+
+    // cleanup extra input files
+    if ( useExtraInputs )
+    {
+        for ( const AString & extraFile : m_ExtraInputFiles )
+        {
+            AStackString extraPath( tmpDirectoryName );
+            extraPath += extraFile;
+            FileIO::FileDelete( extraPath.Get() );
+        }
+    }
 
     // cleanup temp file
     if ( tmpFileName.IsEmpty() == false )
@@ -881,6 +909,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     AString sourceFile;
     uint32_t flags;
     AString compilerArgs;
+    Array<AString> extraInputFiles;
     if ( ( stream.Read( name ) == false ) ||
          ( stream.Read( sourceFile ) == false ) ||
          ( stream.Read( flags ) == false ) ||
@@ -888,10 +917,15 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     {
         return nullptr;
     }
+    if ( ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES ) &&
+         ( stream.Read( extraInputFiles ) == false ) )
+    {
+        return nullptr;
+    }
 
     NodeProxy * srcFile = FNEW( NodeProxy( Move( sourceFile ) ) );
 
-    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags ) );
+    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags, Move( extraInputFiles ) ) );
 }
 
 // DetermineFlags
@@ -1222,7 +1256,21 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     // Save minimal information for the remote worker
     stream.Write( m_Name );
     stream.Write( GetSourceFile()->GetName() );
-    stream.Write( m_CompilerFlags.m_Flags );
+
+    uint32_t flags = m_CompilerFlags.m_Flags;
+    StackArray<AString> extraInputFiles;
+    if ( HasExtraInputFilesForDistribution() )
+    {
+        flags |= CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES;
+        const AString & workingDir = FBuild::Get().GetOptions().GetWorkingDir();
+        for ( const AString & inputFile : m_OwnerObjectList->GetExtraInputFiles() )
+        {
+            AStackString relativeFileName;
+            PathUtils::GetRelativePath( workingDir, inputFile, relativeFileName );
+            extraInputFiles.EmplaceBack( relativeFileName );
+        }
+    }
+    stream.Write( flags );
 
     // TODO:B would be nice to make ShouldUseDeoptimization cache the result for this build
     // instead of opening the file again.
@@ -1257,6 +1305,11 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     driver->AddAdditionalArgs_PreparePreprocessedForRemote( fullArgs );
 
     stream.Write( fullArgs.GetRawArgs() );
+
+    if ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES )
+    {
+        stream.Write( extraInputFiles );
+    }
 }
 
 // GetCompiler
@@ -2040,6 +2093,38 @@ bool ObjectNode::LoadStaticSourceFileForDistribution( const Args & fullArgs, Job
     return true;
 }
 
+// PackExtraInputFilesForDistribution
+//------------------------------------------------------------------------------
+bool ObjectNode::PackExtraInputFilesForDistribution( Job * job ) const
+{
+
+    StackArray<AString> fileNames;
+    fileNames.Append( GetSourceFile()->GetName() ); // we recreate job data, so should re-add source file
+    fileNames.Append( m_OwnerObjectList->GetExtraInputFiles() );
+
+    MultiBuffer mb;
+    size_t problemFileIndex = 0;
+    if ( mb.CreateFromFiles( fileNames, &problemFileIndex ) == false )
+    {
+        FLOG_ERROR( "Error: opening file '%s' while packing extra inputs for transport\n",
+                    fileNames[ problemFileIndex ].Get() );
+        return false;
+    }
+
+    size_t dataSize = 0;
+    void * data = mb.Release( dataSize );
+    job->OwnData( data, dataSize );
+    return true;
+}
+
+// HasExtraInputFilesForDistribution
+//------------------------------------------------------------------------------
+bool ObjectNode::HasExtraInputFilesForDistribution() const
+{
+    return ( m_OwnerObjectList != nullptr ) &&
+           ( m_OwnerObjectList->GetExtraInputFiles().IsEmpty() == false );
+}
+
 // TransferPreprocessedData
 //------------------------------------------------------------------------------
 void ObjectNode::TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const
@@ -2311,9 +2396,87 @@ bool ObjectNode::WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpF
     return true;
 }
 
+// WriteExtraInputFiles
+//------------------------------------------------------------------------------
+bool ObjectNode::WriteExtraInputFiles( Job * job, AString & tmpDirectory, AString & tmpFileName ) const
+{
+    ASSERT( job->GetData() && job->GetDataSize() );
+    ASSERT( job->IsLocal() == false ); // Extra inputs are unpacked only on the worker
+    ASSERT( m_ExtraInputFiles.IsEmpty() == false );
+
+    const Node * sourceFile = GetSourceFile();
+    const uint32_t sourceNameHash = xxHash3::Calc32( sourceFile->GetName().Get(), sourceFile->GetName().GetLength() );
+
+    MultiBuffer mb( job->GetData(), job->GetDataSize() );
+    if ( job->IsDataCompressed() )
+    {
+        if ( mb.Decompress() == false )
+        {
+            // Decompression failure would indicate a bug
+            job->Error( "Decompression failed. Target: '%s'", GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+    }
+
+    WorkerThread::GetTempFileDirectory( tmpDirectory );
+    tmpDirectory.AppendFormat( "%08X%c", sourceNameHash, NATIVE_SLASH );
+    if ( FileIO::DirectoryCreate( tmpDirectory ) == false )
+    {
+        job->Error( "Failed to create temp directory. Error: %s TmpDir: '%s' Target: '%s'", LAST_ERROR_STR, tmpDirectory.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+
+    // TODO: DTLTO JSON inputs can be absolute; currently we don't support this.
+
+    size_t fileIndex = 0;
+
+    // Extract source file
+    AStackString sourceFileRelativePath;
+    PathUtils::GetRelativePath( job->GetRemoteSourceRoot(), sourceFile->GetName(), sourceFileRelativePath );
+    tmpFileName = tmpDirectory;
+    tmpFileName += sourceFileRelativePath;
+    if ( FileIO::EnsurePathExistsForFile( tmpFileName ) == false )
+    {
+        job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+    if ( mb.ExtractFile( fileIndex++, tmpFileName ) == false )
+    {
+        job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
+
+    // Extract extra input files
+    for ( const AString & extraFile : m_ExtraInputFiles )
+    {
+        AStackString extraPath( tmpDirectory );
+        extraPath += extraFile;
+        if ( FileIO::EnsurePathExistsForFile( extraPath ) == false )
+        {
+            job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+        if ( mb.ExtractFile( fileIndex++, extraPath ) == false )
+        {
+            job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->OnSystemError();
+            return false;
+        }
+    }
+
+    job->OwnData( nullptr, 0, false ); // Free compressed buffer
+
+    return true;
+}
+
 // BuildFinalOutput
 //------------------------------------------------------------------------------
-Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs ) const
+Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs, const AString & remoteWorkingDir ) const
 {
     // Use the remotely synchronized compiler if building remotely
     AStackString compiler;
@@ -2326,7 +2489,14 @@ Node::BuildResult ObjectNode::BuildFinalOutput( Job * job, const Args & fullArgs
     {
         ASSERT( job->GetToolManifest() );
         job->GetToolManifest()->GetRemoteFilePath( 0, compiler );
-        job->GetToolManifest()->GetRemotePath( workingDir );
+        if ( remoteWorkingDir.IsEmpty() == false )
+        {
+            workingDir = remoteWorkingDir;
+        }
+        else
+        {
+            job->GetToolManifest()->GetRemotePath( workingDir );
+        }
     }
 
     // spawn the process
@@ -3085,13 +3255,15 @@ void ObjectNode::CreateDriver( ObjectNode::CompilerFlags flags,
 ObjectNodeRemote::ObjectNodeRemote( AString && objectName,
                                     NodeProxy * srcFile,
                                     AString && compilerOptions,
-                                    uint32_t flags )
+                                    uint32_t flags,
+                                    Array<AString> && extraInputFiles )
     : ObjectNode()
     , m_CompilerOptions( Move( compilerOptions ) )
 {
     SetName( Move( objectName ) );
     m_CompilerFlags.m_Flags = flags;
 
+    m_ExtraInputFiles = Move( extraInputFiles );
     m_StaticDependencies.SetCapacity( 2 );
     m_StaticDependencies.Add( nullptr );
     m_StaticDependencies.Add( srcFile );

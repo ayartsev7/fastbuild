@@ -168,21 +168,38 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const DTLTOData & data,
     StackArray<AString> inputFiles;
     inputFiles.EmplaceBack( cleanInput );
 
-    // Extra files for the cache key (ThinLTO index / imports)
-    StackArray<AString> cacheKeyInputFiles;
+    // Files the compiler needs on the worker (ThinLTO index / imports)
+    StackArray<AString> extraInputFiles;
     for ( const AString & input : job.m_Inputs )
     {
         AStackString<> cleanPath;
         NodeGraph::CleanPath( input, cleanPath );
         if ( PathUtils::ArePathsEqual( cleanPath, cleanInput ) == false ) //
         {
-            cacheKeyInputFiles.EmplaceBack( cleanPath );
+            extraInputFiles.EmplaceBack( cleanPath );
         }
     }
+
+    // Files for the cache key calculation
+    StackArray<AString> cacheKeyInputFiles;
+    AStackString<> indexFile;
+    GetThinLTOIndexFile( job.m_Args, indexFile );
+    if ( indexFile.IsEmpty() )
+    {
+        // Need all inputs to make thge cache key when no index file is present
+        cacheKeyInputFiles.Append( extraInputFiles );
+    }
+    else
+    {
+        // Index file hashes all the inputs
+        cacheKeyInputFiles.EmplaceBack( indexFile );
+    }
+
     for ( const AString & input : data.m_CommonInputs )
     {
         AStackString<> cleanPath;
         NodeGraph::CleanPath( input, cleanPath );
+        extraInputFiles.EmplaceBack( cleanPath );
         cacheKeyInputFiles.EmplaceBack( cleanPath );
     }
 
@@ -196,6 +213,7 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const DTLTOData & data,
     VERIFY( ri->SetProperty( result, "CompilerInputFiles", inputFiles ) );
     VERIFY( ri->SetProperty( result, "CacheKeyInputFiles", cacheKeyInputFiles ) );
     VERIFY( ri->SetProperty( result, "CacheKeyCompilerOptions", cacheKeyCompilerOptions ) );
+    VERIFY( ri->SetProperty( result, "ExtraInputFiles", extraInputFiles ) );
 
     if ( !result->Initialize( m_NodeGraph, nullptr, Function::Find( AStackString( "ObjectList" ) ) ) )
     {
@@ -257,6 +275,22 @@ Node * DTLTOGraphBuilder::CreateObjectListForJob( const DTLTOData & data,
     outOptions += " -o \"%2\"";
 
     outOptionsForCacheKey += jobArgs[ 0 ];
+}
+
+// GetThinLTOIndexFile
+//------------------------------------------------------------------------------
+/*static*/ void DTLTOGraphBuilder::GetThinLTOIndexFile( const Array<AString> & jobArgs, AString & outFile )
+{
+    const char * const prefix = "-fthinlto-index=";
+    const size_t prefixLen = AString::StrLen( prefix );
+    for ( const AString & arg : jobArgs )
+    {
+        if ( arg.BeginsWith( prefix ) )
+        {
+            NodeGraph::CleanPath( AStackString<>( arg.Get() + prefixLen ), outFile );
+            return;
+        }
+    }
 }
 
 //------------------------------------------------------------------------------

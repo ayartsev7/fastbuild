@@ -38,6 +38,8 @@ private:
                                       AString & outOptions,
                                       AString & outOptionsForCacheKey );
 
+    static void GetThinLTOIndexFile( const Array<AString> & jobArgs, AString & outFile );
+
     NodeGraph & m_NodeGraph;
 };
 

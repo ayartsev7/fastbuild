@@ -470,6 +470,37 @@ TEST_CASE( TestDistributed, DynamicDeoptimization )
 #endif
 
 //------------------------------------------------------------------------------
+TEST_CASE( TestDistributed, ExtraInputFiles )
+{
+    FBuildTestOptions options;
+    options.m_ConfigFile = "Tools/FBuild/FBuildTest/Data/TestDistributed/ExtraInputs/fbuild.bff";
+    options.m_AllowDistributed = true;
+    options.m_NumWorkerThreads = 1;
+    options.m_NoLocalConsumptionOfRemoteJobs = true; // ensure all jobs happen on the remote worker
+    options.m_AllowLocalRace = false;
+    options.m_ForceCleanBuild = true;
+    FBuildForTest fBuild( options );
+
+    TEST_ASSERT( fBuild.Initialize() );
+
+    const char * const target = "../tmp/Test/Distributed/ExtraInputs/input.out";
+    EnsureFileDoesNotExist( target );
+
+    // start a client to emulate the other end
+    Server s( 1 );
+    s.Listen( Protocol::kTestPort );
+
+    TEST_ASSERT( fBuild.Build( "ExtraInputs" ) );
+
+    // FakeCompiler concatenates both inputs; the extra file is opened relative
+    // to the working dir it is given on the worker
+    AString output;
+    LoadFileContentsAsString( target, output );
+    TEST_ASSERT( output.Find( "PRIMARY_INPUT" ) );
+    TEST_ASSERT( output.Find( "EXTRA_INPUT" ) );
+}
+
+//------------------------------------------------------------------------------
 TEST_CASE( TestDistributed, CleanMessageToPreventMSBuildFailure )
 {
     // Error should be identical except for a single remove colon
