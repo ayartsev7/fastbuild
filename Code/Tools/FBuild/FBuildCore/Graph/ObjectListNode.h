@@ -58,6 +58,7 @@ public:
 
     const Array<AString> & GetCacheKeyInputFiles() const { return m_CacheKeyInputFiles; }
     const AString & GetCacheKeyCompilerOptions() const { return m_CacheKeyCompilerOptions; }
+    const Array<AString> & GetExtraInputFiles() const { return m_ExtraInputFiles; }
 
     void GetObjectFileName( const AString & fileName, const AString & baseDir, AString & objFile );
 
@@ -111,6 +112,7 @@ protected:
     Array<AString> m_CompilerForceUsing;
     Array<AString> m_CacheKeyInputFiles;
     AString m_CacheKeyCompilerOptions;
+    Array<AString> m_ExtraInputFiles;
     bool m_CompilerInputAllowNoFiles = false;
     bool m_CompilerInputPathRecurse = true;
     bool m_CompilerOutputKeepBaseExtension = false;
