@@ -1263,7 +1263,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     {
         flags |= CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES;
         const AString & workingDir = FBuild::Get().GetOptions().GetWorkingDir();
-        for ( const AString & inputFile : GetExtraInputFilesForDistribution() )
+        for ( const AString & inputFile : m_OwnerObjectList->GetExtraInputFiles() )
         {
             AStackString relativeFileName;
             PathUtils::GetRelativePath( workingDir, inputFile, relativeFileName );
@@ -2100,7 +2100,7 @@ bool ObjectNode::PackExtraInputFilesForDistribution( Job * job ) const
     
     StackArray<AString> fileNames;
     fileNames.Append( GetSourceFile()->GetName() ); // we recreate job data, so should re-add source file
-    fileNames.Append( GetExtraInputFilesForDistribution() );
+    fileNames.Append( m_OwnerObjectList->GetExtraInputFiles() );
 
     MultiBuffer mb;
     size_t problemFileIndex = 0;
@@ -2122,16 +2122,7 @@ bool ObjectNode::PackExtraInputFilesForDistribution( Job * job ) const
 bool ObjectNode::HasExtraInputFilesForDistribution() const
 {
     return ( m_OwnerObjectList != nullptr ) &&
-           ( GetExtraInputFilesForDistribution().IsEmpty() == false );
-}
-
-// GetExtraInputFilesForDistribution
-//------------------------------------------------------------------------------
-const Array<AString> & ObjectNode::GetExtraInputFilesForDistribution() const
-{
-    // Extra files shipped to workers, same list as CacheKeyInputFiles: DTLTO JSON inputs
-    // both hash into the cache key and must exist on the worker.
-    return m_OwnerObjectList->GetCacheKeyInputFiles();
+           ( m_OwnerObjectList->GetExtraInputFiles().IsEmpty() == false );
 }
 
 // TransferPreprocessedData

@@ -442,3 +442,44 @@ TEST_CASE( TestDTLTOGraphBuilder, CacheKeyInputFiles )
 }
 
 //------------------------------------------------------------------------------
+TEST_CASE( TestDTLTOGraphBuilder, ExtraInputFiles )
+{
+    FBuild fBuild;
+    NodeGraph nodeGraph;
+
+    DTLTOData data;
+    data.m_CommonArgs.EmplaceBack( "clang.exe" );
+    DTLTOData::Job & job = data.m_Jobs.EmplaceBack();
+    job.m_Args.EmplaceBack( "a.obj" );
+    job.m_Args.EmplaceBack( "-fthinlto-index=a.thinlto.bc" );
+    job.m_Outputs.EmplaceBack( "a.o" );
+    job.m_Inputs.EmplaceBack( "a.obj" );
+    job.m_Inputs.EmplaceBack( "a.thinlto.bc" );
+    job.m_Inputs.EmplaceBack( "imported.obj" );
+
+    DTLTOGraphBuilder builder( nodeGraph );
+    TEST_ASSERT( builder.BuildGraph( data, AStackString<>( "dtlto-all" ) ) );
+
+    Node * jobNode = FindObjectList( nodeGraph, "a.o" );
+    TEST_ASSERT( jobNode );
+    const ReflectionInfo * ri = jobNode->GetReflectionInfoV();
+
+    // Check extra input files
+    StackArray<AString> extraInputs;
+    TEST_ASSERT( ri->GetProperty( jobNode, "ExtraInputFiles", &extraInputs ) );
+    TEST_ASSERT( extraInputs.GetSize() == 2 );
+    AStackString<> expectedIndex;
+    AStackString<> expectedImport;
+    NodeGraph::CleanPath( AStackString<>( "a.thinlto.bc" ), expectedIndex );
+    NodeGraph::CleanPath( AStackString<>( "imported.obj" ), expectedImport );
+    TEST_ASSERT( extraInputs[ 0 ] == expectedIndex );
+    TEST_ASSERT( extraInputs[ 1 ] == expectedImport );
+
+    // Check cache key input files
+    StackArray<AString> cacheInputs;
+    TEST_ASSERT( ri->GetProperty( jobNode, "CacheKeyInputFiles", &cacheInputs ) );
+    TEST_ASSERT( cacheInputs.GetSize() == 1 );
+    TEST_ASSERT( cacheInputs[ 0 ] == expectedIndex );
+}
+
+//------------------------------------------------------------------------------

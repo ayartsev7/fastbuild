@@ -240,7 +240,6 @@ protected:
     BuildResult BuildPreprocessedOutput( const Args & fullArgs, Job * job, bool useDeoptimization ) const;
     bool LoadStaticSourceFileForDistribution( const Args & fullArgs, Job * job, bool useDeoptimization ) const;
     bool PackExtraInputFilesForDistribution( Job * job ) const;
-    const Array<AString> & GetExtraInputFilesForDistribution() const;
     void TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const;
     bool WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;
     bool WriteExtraInputFiles( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;

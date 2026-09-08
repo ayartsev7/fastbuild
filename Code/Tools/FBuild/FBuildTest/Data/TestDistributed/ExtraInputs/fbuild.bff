@@ -44,5 +44,5 @@ ObjectList( "ExtraInputs" )
     .CompilerInputFiles         = "Tools/FBuild/FBuildTest/Data/TestDistributed/ExtraInputs/input.txt"
     .CompilerOutputPath         = "$Out$/Test/Distributed/ExtraInputs/"
     .CompilerOutputExtension    = ".out"
-    .CacheKeyInputFiles         = { "Tools/FBuild/FBuildTest/Data/TestDistributed/ExtraInputs/extra.txt" }
+    .ExtraInputFiles            = { "Tools/FBuild/FBuildTest/Data/TestDistributed/ExtraInputs/extra.txt" }
 }
