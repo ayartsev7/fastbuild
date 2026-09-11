@@ -40,6 +40,7 @@ public:
     void Migrate( const ToolManifestFile & oldFile );
 
     const void * GetFileData( size_t & outDataSize ) const;
+    const void * ReleaseFileData( size_t & outDataSize ) const;
 
     // Access state
     const AString & GetName() const { return m_Name; }
@@ -77,11 +78,13 @@ class ToolManifest : public Struct
     REFLECT_STRUCT_DECLARE( ToolManifest )
 public:
     explicit ToolManifest();
-    explicit ToolManifest( uint64_t toolId );
+    explicit ToolManifest( uint64_t toolId, bool holdsExtraInputs );
     ~ToolManifest();
 
     void Initialize( const AString & mainExecutableRoot, const Dependencies & dependencies, const Array<AString> & customEnvironmentVariables );
+    void Initialize( const AString & sourceRoot, const Array<AString> & extraInputFiles );
     bool DoBuild( const Dependencies & dependencies, bool skipHashing );
+    bool DoBuild( bool skipHashing );
     void Migrate( const ToolManifest & oldManifest );
 
     uint64_t GetToolId() const { return m_ToolId; }
@@ -135,6 +138,7 @@ private:
 
     // Internal state
     bool m_Synchronized;
+    bool m_HoldsExtraInputs;
     const char * m_RemoteEnvironmentString;
     void * m_UserData;
 };

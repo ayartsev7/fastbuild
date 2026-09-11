@@ -72,6 +72,7 @@ ToolManifest::ToolManifest()
     : m_ToolId( 0 )
     , m_TimeStamp( 0 )
     , m_Synchronized( false )
+    , m_HoldsExtraInputs( false )
     , m_RemoteEnvironmentString( nullptr )
     , m_UserData( nullptr )
 {
@@ -79,10 +80,11 @@ ToolManifest::ToolManifest()
 
 // CONSTRUCTOR
 //------------------------------------------------------------------------------
-ToolManifest::ToolManifest( uint64_t toolId )
+ToolManifest::ToolManifest( uint64_t toolId, bool holdsExtraInputs )
     : m_ToolId( toolId )
     , m_TimeStamp( 0 )
     , m_Synchronized( false )
+    , m_HoldsExtraInputs( holdsExtraInputs )
     , m_RemoteEnvironmentString( nullptr )
     , m_UserData( nullptr )
 {
@@ -120,19 +122,19 @@ bool ToolManifestFile::DoBuild( bool skipHashing )
 
     if ( skipHashing )
     {
-        // Get the file's timestamp (a fast 'stat' call)
-        const uint64_t lastWriteTime = FileIO::GetFileLastWriteTime( m_Name );
-
-        // File missing?
-        if ( lastWriteTime == 0 )
+        // Get the file's timestamp and size (a fast 'stat' call)
+        FileIO::FileInfo info;
+        if ( FileIO::GetFileInfo( m_Name, info ) == false )
         {
-            FLOG_ERROR( "Error: opening file '%s' in Compiler ToolManifest. File not found.\n", m_Name.Get() );
+            FLOG_ERROR( "Error: opening file '%s' in ToolManifest. File not found.\n", m_Name.Get() );
             return false;
         }
 
-        // We hash the NAME instead of the CONTENT.
-        m_Hash = xxHash3::Calc32( m_Name );
-        m_TimeStamp = lastWriteTime;
+        // The timestamp and size stand in for the content, which we don't want to read
+        const uint64_t identity[] = { xxHash3::Calc64( m_Name ), info.m_LastWriteTime, info.m_Size };
+        m_Hash = xxHash3::Calc32( identity, sizeof( identity ) );
+        m_TimeStamp = info.m_LastWriteTime;
+        m_UncompressedContentSize = (uint32_t)info.m_Size;
         return true; // We're done, skip the expensive file I/O below
     }
     // Do we already have a hash?
@@ -181,7 +183,7 @@ void ToolManifestFile::Migrate( const ToolManifestFile & oldFile )
     m_Hash = oldFile.m_Hash;
 }
 
-// Generate
+// Initialize
 //------------------------------------------------------------------------------
 void ToolManifest::Initialize( const AString & mainExecutableRoot, const Dependencies & dependencies, const Array<AString> & customEnvironmentVariables )
 {
@@ -197,13 +199,35 @@ void ToolManifest::Initialize( const AString & mainExecutableRoot, const Depende
     }
 }
 
-// Generate
+// Initialize
+//------------------------------------------------------------------------------
+void ToolManifest::Initialize( const AString & sourceRoot, const Array<AString> & extraInputFiles )
+{
+    m_MainExecutableRootPath = sourceRoot;
+    m_HoldsExtraInputs = true;
+
+    ASSERT( m_Files.IsEmpty() );
+    m_Files.SetCapacity( extraInputFiles.GetSize() );
+    for ( const AString & file : extraInputFiles )
+    {
+        m_Files.EmplaceBack( file, (uint64_t)0, (uint32_t)0, (uint32_t)0 );
+    }
+}
+
+// DoBuild
 //------------------------------------------------------------------------------
 bool ToolManifest::DoBuild( const Dependencies & dependencies, bool skipHashing )
 {
     ASSERT( m_Files.GetSize() == dependencies.GetSize() );
     (void)dependencies;
 
+    return DoBuild( skipHashing );
+}
+
+// DoBuild
+//------------------------------------------------------------------------------
+bool ToolManifest::DoBuild( bool skipHashing )
+{
     m_TimeStamp = 0;
 
     // Get timestamps and hashes
@@ -645,32 +669,32 @@ bool ToolManifest::ReceiveFileData( uint32_t fileId,
         return false; // FAILED
     }
 
-    // write to disk
-    FileStream fs;
+        // write to disk
+        FileStream fs;
     if ( !fs.Open( fileName.Get(), FileStream::WRITE_ONLY ) )
-    {
-        return false; // FAILED
-    }
-    if ( fs.Write( uncompressedData, uncompressedDataSize ) != uncompressedDataSize )
-    {
-        return false; // FAILED
-    }
-    fs.Close();
+        {
+            return false; // FAILED
+        }
+        if ( fs.Write( uncompressedData, uncompressedDataSize ) != uncompressedDataSize )
+        {
+            return false; // FAILED
+        }
+        fs.Close();
 
-    // mark executable
+        // mark executable
 #if defined( __LINUX__ ) || defined( __OSX__ )
-    FileIO::SetExecutable( fileName.Get() );
+        FileIO::SetExecutable( fileName.Get() );
 #endif
 
-    // open read-only
-    UniquePtr<FileStream> fileStream( FNEW( FileStream ) );
-    if ( fileStream.Get()->Open( fileName.Get(), FileStream::READ_ONLY ) == false )
-    {
-        return false; // FAILED
-    }
+        // open read-only
+        UniquePtr<FileStream> fileStream( FNEW( FileStream ) );
+        if ( fileStream.Get()->Open( fileName.Get(), FileStream::READ_ONLY ) == false )
+        {
+            return false; // FAILED
+        }
 
     // This file is now synchronized
-    f.SetFileLock( fileStream.ReleaseOwnership() ); // NOTE: Keep file open to prevent deletion
+        f.SetFileLock( fileStream.ReleaseOwnership() ); // NOTE: Keep file open to prevent deletion
     f.SetSyncState( ToolManifestFile::SYNCHRONIZED );
 
     // is completely synchronized?
