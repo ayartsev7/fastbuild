@@ -414,6 +414,14 @@ bool ToolManifest::DeserializeFromRemote( IOStream & ms )
         {
             continue; // file is not complete
         }
+        if ( m_HoldsExtraInputs )
+        {
+            // An input has no content hash, so the file size is all we have to check before this
+            // We do not lock the file either, so a later job can replace it
+            m_Files[ i ].SetSyncState( ToolManifestFile::SYNCHRONIZED );
+            numFilesAlreadySynchronized++;
+            continue; // file present and ok
+        }
         UniquePtr<char, FreeDeletor> mem( (char *)ALLOC( (size_t)f.GetFileSize() ) );
         if ( f.Read( mem.Get(), (size_t)f.GetFileSize() ) != f.GetFileSize() )
         {
@@ -586,6 +594,15 @@ const void * ToolManifest::GetFileData( uint32_t fileId, size_t & dataSize ) con
     return m_Files[ fileId ].GetFileData( dataSize );
 }
 
+// ReleaseFileData
+//------------------------------------------------------------------------------
+const void * ToolManifest::ReleaseFileData( uint32_t fileId, size_t & dataSize ) const
+{
+    MutexHolder mh( m_Mutex );
+
+    return m_Files[ fileId ].ReleaseFileData( dataSize );
+}
+
 // GetFileData (ToolManifestFile)
 //------------------------------------------------------------------------------
 const void * ToolManifestFile::GetFileData( size_t & outDataSize ) const
@@ -614,6 +631,16 @@ const void * ToolManifestFile::GetFileData( size_t & outDataSize ) const
     }
     outDataSize = m_CompressedContentSize;
     return m_CompressedContent;
+}
+
+// ReleaseFileData (ToolManifestFile)
+//------------------------------------------------------------------------------
+const void * ToolManifestFile::ReleaseFileData( size_t & outDataSize ) const
+{
+    const void * data = GetFileData( outDataSize );
+    m_CompressedContent = nullptr;
+    m_CompressedContentSize = 0;
+    return data;
 }
 
 // ReceiveFileData
@@ -766,11 +793,17 @@ void ToolManifest::GetRemoteFilePath( uint32_t fileId, AString & remotePath ) co
 void ToolManifest::GetRemotePath( AString & path ) const
 {
     VERIFY( FBuild::GetTempDir( path ) );
+
+    // Extra inputs are keyed on the source root so that files common to several jobs
+    // are synchronized once into a shared directory
+    const char * name = m_HoldsExtraInputs ? "inputs" : "toolchain";
+    const uint64_t id = m_HoldsExtraInputs ? xxHash3::Calc64( m_MainExecutableRootPath ) : m_ToolId;
+
     AStackString subDir;
 #if defined( __WINDOWS__ )
-    subDir.Format( ".fbuild.tmp\\worker\\toolchain.%016" PRIx64 "\\", m_ToolId );
+    subDir.Format( ".fbuild.tmp\\worker\\%s.%016" PRIx64 "\\", name, id );
 #else
-    subDir.Format( "_fbuild.tmp/worker/toolchain.%016" PRIx64 "/", m_ToolId );
+    subDir.Format( "_fbuild.tmp/worker/%s.%016" PRIx64 "/", name, id );
 #endif
     path += subDir;
 }

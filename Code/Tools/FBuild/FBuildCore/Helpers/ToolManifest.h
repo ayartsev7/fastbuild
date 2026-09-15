@@ -94,6 +94,7 @@ public:
     bool DeserializeFromRemote( IOStream & ms );
 
     bool IsSynchronized() const { return m_Synchronized; }
+    bool HoldsExtraInputs() const { return m_HoldsExtraInputs; }
     bool GetSynchronizationStatus( uint32_t & syncDone, uint32_t & syncTotal ) const;
 
     // operator for FindDeref
@@ -114,6 +115,7 @@ public:
     void CancelSynchronizingFiles();
 
     const void * GetFileData( uint32_t fileId, size_t & dataSize ) const;
+    const void * ReleaseFileData( uint32_t fileId, size_t & dataSize ) const;
     bool ReceiveFileData( uint32_t fileId, const void * data, size_t & dataSize, bool & outCorruptData );
 
     void GetRemotePath( AString & path ) const;
