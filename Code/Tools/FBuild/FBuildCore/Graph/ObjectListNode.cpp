@@ -628,6 +628,15 @@ ObjectListNode::~ObjectListNode() = default;
     return BuildResult::eOk;
 }
 
+// BuildExtraInputManifest
+//------------------------------------------------------------------------------
+bool ObjectListNode::BuildExtraInputManifest()
+{
+    MutexHolder mh( m_ExtraInputManifestMutex );
+
+    return m_ExtraInputManifest.DoBuild( true ); //
+}
+
 // GetInputFiles
 //------------------------------------------------------------------------------
 void ObjectListNode::GetInputFiles( bool objectsInsteadOfLibs, Array<AString> & outInputs ) const

@@ -696,9 +696,18 @@ bool ToolManifest::ReceiveFileData( uint32_t fileId,
         return false; // FAILED
     }
 
+    // check for an extra input already in the shared directory
+    FileIO::FileInfo info;
+    const bool fileAlreadyPresent = FileIO::GetFileInfo( fileName, info ) &&
+                                    ( info.m_Size == uncompressedDataSize );
+
+    if ( ( m_HoldsExtraInputs == false ) || ( fileAlreadyPresent == false ) )
+    {
+        const uint32_t extendedRetryTimeMS = 15'000; // another job can be writing this input right now
+
         // write to disk
         FileStream fs;
-    if ( !fs.Open( fileName.Get(), FileStream::WRITE_ONLY ) )
+        if ( !fs.Open( fileName.Get(), FileStream::WRITE_ONLY, extendedRetryTimeMS ) )
         {
             return false; // FAILED
         }
@@ -707,7 +716,10 @@ bool ToolManifest::ReceiveFileData( uint32_t fileId,
             return false; // FAILED
         }
         fs.Close();
+    }
 
+    if ( m_HoldsExtraInputs == false )
+    {
         // mark executable
 #if defined( __LINUX__ ) || defined( __OSX__ )
         FileIO::SetExecutable( fileName.Get() );
@@ -720,8 +732,10 @@ bool ToolManifest::ReceiveFileData( uint32_t fileId,
             return false; // FAILED
         }
 
-    // This file is now synchronized
         f.SetFileLock( fileStream.ReleaseOwnership() ); // NOTE: Keep file open to prevent deletion
+    }
+
+    // This file is now synchronized
     f.SetSyncState( ToolManifestFile::SYNCHRONIZED );
 
     // is completely synchronized?
@@ -816,14 +830,14 @@ bool ToolManifestFile::LoadFile( void *& uncompressedContent, uint32_t & uncompr
     FileStream fs;
     if ( fs.Open( m_Name.Get(), FileStream::READ_ONLY ) == false )
     {
-        FLOG_ERROR( "Error: opening file '%s' in Compiler ToolManifest. Error: %s\n", m_Name.Get(), LAST_ERROR_STR );
+        FLOG_ERROR( "Error: opening file '%s' in ToolManifest. Error: %s\n", m_Name.Get(), LAST_ERROR_STR );
         return false;
     }
     uncompressedContentSize = (uint32_t)fs.GetFileSize();
     UniquePtr<void, FreeDeletor> mem( ALLOC( uncompressedContentSize ) );
     if ( fs.Read( mem.Get(), uncompressedContentSize ) != uncompressedContentSize )
     {
-        FLOG_ERROR( "Error: reading file '%s' in Compiler ToolManifest. Error: %s\n", m_Name.Get(), LAST_ERROR_STR );
+        FLOG_ERROR( "Error: reading file '%s' in ToolManifest. Error: %s\n", m_Name.Get(), LAST_ERROR_STR );
         return false;
     }
 
