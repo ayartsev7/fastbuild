@@ -477,12 +477,12 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor( Job * job, bool useDeopti
     const bool belowMemoryLimit = ( ( Job::GetTotalLocalDataMemoryUsage() / MEGABYTE ) < FBuild::Get().GetSettings()->GetDistributableJobMemoryLimitMiB() );
     if ( canDistribute && belowMemoryLimit )
     {
-        // pack extra input files for distribution if any
-        if ( HasExtraInputFilesForDistribution() )
+        // extra input files are synchronized to the worker via a manifest
+        if ( HasExtraInputFiles() )
         {
-            if ( PackExtraInputFilesForDistribution( job ) == false )
+            if ( m_OwnerObjectList->BuildExtraInputManifest() == false )
             {
-                return BuildResult::eFailed; // PackExtraInputFilesForDistribution will have emitted an error
+                return BuildResult::eFailed; // BuildExtraInputManifest will have emitted an error
             }
         }
 
@@ -586,14 +586,15 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     Args fullArgs;
     AStackString tmpDirectoryName;
     AStackString tmpFileName;
-    const bool useExtraInputs = ( job->IsLocal() == false ) && ( m_ExtraInputFiles.IsEmpty() == false );
+    const bool useExtraInputs = ( job->IsLocal() == false ) && ( m_ExtraInputManifestId != 0 );
     if ( usePreProcessedOutput )
     {
+        // write the source file next to the extra inputs
         if ( useExtraInputs )
         {
-            if ( WriteExtraInputFiles( job, tmpDirectoryName, tmpFileName ) == false )
+            if ( WriteSourceFileToExtraInputs( job, tmpDirectoryName, tmpFileName ) == false )
             {
-                return BuildResult::eFailed; // WriteExtraInputFiles will have emitted an error
+                return BuildResult::eFailed; // WriteSourceFileToExtraInputs will have emitted an error
             }
         }
         else if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
@@ -646,27 +647,19 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
 
     const BuildResult result = BuildFinalOutput( job, fullArgs, useExtraInputs ? tmpDirectoryName : AString::GetEmpty() );
 
-    // cleanup extra input files
-    if ( useExtraInputs )
+    if ( useExtraInputs == false ) // the directory of extra inputs is shared with other jobs, no cleanup
     {
-        for ( const AString & extraFile : m_ExtraInputFiles )
+        // cleanup temp file
+        if ( tmpFileName.IsEmpty() == false )
         {
-            AStackString extraPath( tmpDirectoryName );
-            extraPath += extraFile;
-            FileIO::FileDelete( extraPath.Get() );
+            FileIO::FileDelete( tmpFileName.Get() );
         }
-    }
 
-    // cleanup temp file
-    if ( tmpFileName.IsEmpty() == false )
-    {
-        FileIO::FileDelete( tmpFileName.Get() );
-    }
-
-    // cleanup temp directory
-    if ( tmpDirectoryName.IsEmpty() == false )
-    {
-        FileIO::DirectoryDelete( tmpDirectoryName );
+        // cleanup temp directory
+        if ( tmpDirectoryName.IsEmpty() == false )
+        {
+            FileIO::DirectoryDelete( tmpDirectoryName );
+        }
     }
 
     if ( result != BuildResult::eOk )
@@ -909,7 +902,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     AString sourceFile;
     uint32_t flags;
     AString compilerArgs;
-    Array<AString> extraInputFiles;
+    uint64_t extraInputManifestId = 0;
     if ( ( stream.Read( name ) == false ) ||
          ( stream.Read( sourceFile ) == false ) ||
          ( stream.Read( flags ) == false ) ||
@@ -918,14 +911,14 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
         return nullptr;
     }
     if ( ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES ) &&
-         ( stream.Read( extraInputFiles ) == false ) )
+         ( stream.Read( extraInputManifestId ) == false ) )
     {
         return nullptr;
     }
 
     NodeProxy * srcFile = FNEW( NodeProxy( Move( sourceFile ) ) );
 
-    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags, Move( extraInputFiles ) ) );
+    return FNEW( ObjectNodeRemote( Move( name ), srcFile, Move( compilerArgs ), flags, extraInputManifestId ) );
 }
 
 // DetermineFlags
@@ -1258,17 +1251,9 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
     stream.Write( GetSourceFile()->GetName() );
 
     uint32_t flags = m_CompilerFlags.m_Flags;
-    StackArray<AString> extraInputFiles;
-    if ( HasExtraInputFilesForDistribution() )
+    if ( HasExtraInputFiles() )
     {
         flags |= CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES;
-        const AString & workingDir = FBuild::Get().GetOptions().GetWorkingDir();
-        for ( const AString & inputFile : m_OwnerObjectList->GetExtraInputFiles() )
-        {
-            AStackString relativeFileName;
-            PathUtils::GetRelativePath( workingDir, inputFile, relativeFileName );
-            extraInputFiles.EmplaceBack( relativeFileName );
-        }
     }
     stream.Write( flags );
 
@@ -1308,7 +1293,7 @@ bool ObjectNode::ProcessIncludesWithPreProcessor( Job * job )
 
     if ( flags & CompilerFlags::FLAG_HAS_EXTRA_INPUT_FILES )
     {
-        stream.Write( extraInputFiles );
+        stream.Write( GetExtraInputManifest()->GetToolId() );
     }
 }
 
@@ -2093,36 +2078,19 @@ bool ObjectNode::LoadStaticSourceFileForDistribution( const Args & fullArgs, Job
     return true;
 }
 
-// PackExtraInputFilesForDistribution
+// HasExtraInputFiles
 //------------------------------------------------------------------------------
-bool ObjectNode::PackExtraInputFilesForDistribution( Job * job ) const
-{
-
-    StackArray<AString> fileNames;
-    fileNames.Append( GetSourceFile()->GetName() ); // we recreate job data, so should re-add source file
-    fileNames.Append( m_OwnerObjectList->GetExtraInputFiles() );
-
-    MultiBuffer mb;
-    size_t problemFileIndex = 0;
-    if ( mb.CreateFromFiles( fileNames, &problemFileIndex ) == false )
-    {
-        FLOG_ERROR( "Error: opening file '%s' while packing extra inputs for transport\n",
-                    fileNames[ problemFileIndex ].Get() );
-        return false;
-    }
-
-    size_t dataSize = 0;
-    void * data = mb.Release( dataSize );
-    job->OwnData( data, dataSize );
-    return true;
-}
-
-// HasExtraInputFilesForDistribution
-//------------------------------------------------------------------------------
-bool ObjectNode::HasExtraInputFilesForDistribution() const
+bool ObjectNode::HasExtraInputFiles() const
 {
     return ( m_OwnerObjectList != nullptr ) &&
            ( m_OwnerObjectList->GetExtraInputFiles().IsEmpty() == false );
+}
+
+// GetExtraInputManifest
+//------------------------------------------------------------------------------
+const ToolManifest * ObjectNode::GetExtraInputManifest() const
+{
+    return HasExtraInputFiles() ? &m_OwnerObjectList->GetExtraInputManifest() : nullptr;
 }
 
 // TransferPreprocessedData
@@ -2396,9 +2364,9 @@ bool ObjectNode::WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpF
     return true;
 }
 
-// WriteExtraInputFiles
+// WriteSourceFileToExtraInputs
 //------------------------------------------------------------------------------
-bool ObjectNode::WriteExtraInputFiles( Job * job, AString & tmpDirectory, AString & tmpFileName ) const
+bool ObjectNode::WriteSourceFileToExtraInputs( Job * job, AString & inputsDirectory, AString & sourceFileName ) const
 {
     ASSERT( job->GetData() && job->GetDataSize() );
     ASSERT( job->IsLocal() == false ); // Extra inputs are unpacked only on the worker
@@ -3256,14 +3224,14 @@ ObjectNodeRemote::ObjectNodeRemote( AString && objectName,
                                     NodeProxy * srcFile,
                                     AString && compilerOptions,
                                     uint32_t flags,
-                                    Array<AString> && extraInputFiles )
+                                    uint64_t extraInputManifestId )
     : ObjectNode()
     , m_CompilerOptions( Move( compilerOptions ) )
 {
     SetName( Move( objectName ) );
     m_CompilerFlags.m_Flags = flags;
 
-    m_ExtraInputFiles = Move( extraInputFiles );
+    m_ExtraInputManifestId = extraInputManifestId;
     m_StaticDependencies.SetCapacity( 2 );
     m_StaticDependencies.Add( nullptr );
     m_StaticDependencies.Add( srcFile );
