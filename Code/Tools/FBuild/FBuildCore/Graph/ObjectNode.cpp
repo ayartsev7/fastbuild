@@ -2369,75 +2369,68 @@ bool ObjectNode::WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpF
 bool ObjectNode::WriteSourceFileToExtraInputs( Job * job, AString & inputsDirectory, AString & sourceFileName ) const
 {
     ASSERT( job->GetData() && job->GetDataSize() );
-    ASSERT( job->IsLocal() == false ); // Extra inputs are unpacked only on the worker
-    ASSERT( m_ExtraInputFiles.IsEmpty() == false );
+    ASSERT( job->IsLocal() == false ); // the source file is written only on the worker
 
-    const Node * sourceFile = GetSourceFile();
-    const uint32_t sourceNameHash = xxHash3::Calc32( sourceFile->GetName().Get(), sourceFile->GetName().GetLength() );
+    void const * dataToWrite = job->GetData();
+    size_t dataToWriteSize = job->GetDataSize();
 
-    MultiBuffer mb( job->GetData(), job->GetDataSize() );
+    // Handle compressed data
+    Compressor c;
     if ( job->IsDataCompressed() )
     {
-        if ( mb.Decompress() == false )
+        if ( c.Decompress( dataToWrite ) == false )
         {
             // Decompression failure would indicate a bug
             job->Error( "Decompression failed. Target: '%s'", GetName().Get() );
             job->OnSystemError();
             return false;
         }
+        dataToWrite = c.GetResult();
+        dataToWriteSize = c.GetResultSize();
     }
 
-    WorkerThread::GetTempFileDirectory( tmpDirectory );
-    tmpDirectory.AppendFormat( "%08X%c", sourceNameHash, NATIVE_SLASH );
-    if ( FileIO::DirectoryCreate( tmpDirectory ) == false )
-    {
-        job->Error( "Failed to create temp directory. Error: %s TmpDir: '%s' Target: '%s'", LAST_ERROR_STR, tmpDirectory.Get(), GetName().Get() );
-        job->OnSystemError();
-        return false;
-    }
+    // Get the directory of the extra inputs
+    const ToolManifest * extraInputManifest = job->GetExtraInputManifest();
+    ASSERT( extraInputManifest );
+    extraInputManifest->GetRemotePath( inputsDirectory );
 
-    // TODO: DTLTO JSON inputs can be absolute; currently we don't support this.
-
-    size_t fileIndex = 0;
-
-    // Extract source file
+    // Get the relative path of the source file to the extra inputs directory
     AStackString sourceFileRelativePath;
-    PathUtils::GetRelativePath( job->GetRemoteSourceRoot(), sourceFile->GetName(), sourceFileRelativePath );
-    tmpFileName = tmpDirectory;
-    tmpFileName += sourceFileRelativePath;
-    if ( FileIO::EnsurePathExistsForFile( tmpFileName ) == false )
+    PathUtils::GetRelativePath( job->GetRemoteSourceRoot(), GetSourceFile()->GetName(), sourceFileRelativePath );
+    sourceFileName = inputsDirectory;
+    sourceFileName += sourceFileRelativePath;
+    if ( FileIO::EnsurePathExistsForFile( sourceFileName ) == false )
     {
-        job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
-        job->OnSystemError();
-        return false;
-    }
-    if ( mb.ExtractFile( fileIndex++, tmpFileName ) == false )
-    {
-        job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, tmpFileName.Get(), GetName().Get() );
+        job->Error( "Failed to create directory for input file. Error: %s File: '%s' Target: '%s'", LAST_ERROR_STR, sourceFileName.Get(), GetName().Get() );
         job->OnSystemError();
         return false;
     }
 
-    // Extract extra input files
-    for ( const AString & extraFile : m_ExtraInputFiles )
+    FileIO::FileInfo info;
+    const bool alreadyPresent = FileIO::GetFileInfo( sourceFileName, info ) &&
+                                ( info.m_Size == dataToWriteSize );
+    if ( alreadyPresent == false ) // do not rewrite the file if another job has already put it there
     {
-        AStackString extraPath( tmpDirectory );
-        extraPath += extraFile;
-        if ( FileIO::EnsurePathExistsForFile( extraPath ) == false )
+        // Another job can be writing this file right now, so wait for it
+        const uint32_t extendedRetryTimeMS = 15'000;
+
+        FileStream sourceFile;
+        if ( sourceFile.Open( sourceFileName.Get(), FileStream::WRITE_ONLY, extendedRetryTimeMS ) == false )
         {
-            job->Error( "Failed to create temp directory. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->Error( "Failed to create input file. Error: %s File: '%s' Target: '%s'", LAST_ERROR_STR, sourceFileName.Get(), GetName().Get() );
             job->OnSystemError();
             return false;
         }
-        if ( mb.ExtractFile( fileIndex++, extraPath ) == false )
+        if ( sourceFile.Write( dataToWrite, dataToWriteSize ) != dataToWriteSize )
         {
-            job->Error( "Failed to write extra input file. Error: %s TmpFile: '%s' Target: '%s'", LAST_ERROR_STR, extraPath.Get(), GetName().Get() );
+            job->Error( "Failed to write to input file. Error: %s File: '%s' Target: '%s'", LAST_ERROR_STR, sourceFileName.Get(), GetName().Get() );
             job->OnSystemError();
             return false;
         }
+        sourceFile.Close();
     }
 
-    job->OwnData( nullptr, 0, false ); // Free compressed buffer
+    job->OwnData( nullptr, 0, false ); // free the buffer
 
     return true;
 }

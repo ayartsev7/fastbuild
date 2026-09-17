@@ -208,6 +208,8 @@ void ToolManifest::Initialize( const AString & sourceRoot, const Array<AString> 
 
     ASSERT( m_Files.IsEmpty() );
     m_Files.SetCapacity( extraInputFiles.GetSize() );
+
+    // TODO: DTLTO JSON inputs can be absolute; currently we don't support this.
     for ( const AString & file : extraInputFiles )
     {
         m_Files.EmplaceBack( file, (uint64_t)0, (uint32_t)0, (uint32_t)0 );
