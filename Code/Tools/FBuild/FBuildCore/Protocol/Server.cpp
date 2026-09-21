@@ -362,63 +362,16 @@ void Server::Process( const ConnectionInfo * connection, const Protocol::MsgJob 
             // Find or create the manifest
             MutexHolder manifestMH( m_ToolManifestsMutex );
 
-            ToolManifest ** found = m_Tools.FindDeref( toolId );
-            ToolManifest * manifest = found ? *found : nullptr;
-            if ( manifest )
+            const bool toolchainManifest = false;
+            ToolManifest * manifest = FindOrRequestManifest( connection, toolId, toolchainManifest );
+            job->SetToolManifest( manifest );
+
+            // Is tool fully synchronized?
+            if ( manifest->IsSynchronized() )
             {
-                job->SetToolManifest( manifest );
-
-                // Is tool fully synchronized?
-                if ( manifest->IsSynchronized() )
-                {
-                    // we have all the files - we can do the job
-                    JobQueueRemote::Get().QueueJob( job );
-                    return;
-                }
-
-                // If we have an associated connection, we're already synchronizing
-                // on that connection and don't need to do anything.
-                // That may be a connection to another client or to the same client
-                const bool isSynchronizing = ( manifest->GetUserData() != nullptr );
-                if ( isSynchronizing )
-                {
-                    // We just need to wait for synchronization to complete
-                }
-                else
-                {
-                    // Take ownership of toolchain
-                    manifest->SetUserData( (void *)connection );
-
-                    const bool hasManifest = ( manifest->GetFiles().IsEmpty() == false );
-                    if ( hasManifest )
-                    {
-                        // Missing some files - request any not already being sync'd
-                        RequestMissingFiles( connection, manifest );
-                    }
-                    else
-                    {
-                        // Manifest was not sync'd. This can happen if disconnection
-                        // occurs before the manifest was received.
-
-                        // request manifest
-                        const Protocol::MsgRequestManifest reqMsg( toolId );
-                        reqMsg.Send( connection );
-                    }
-                }
-            }
-            else
-            {
-                // first time seeing this tool
-
-                // create manifest object
-                manifest = FNEW( ToolManifest( toolId ) );
-                manifest->SetUserData( (void *)connection ); // This connection owns synchronization
-                job->SetToolManifest( manifest );
-                m_Tools.Append( manifest );
-
-                // request manifest of tool chain
-                const Protocol::MsgRequestManifest reqMsg( toolId );
-                reqMsg.Send( connection );
+                // we have all the files - we can do the job
+                JobQueueRemote::Get().QueueJob( job );
+                return;
             }
 
             // can't start job yet - put it on hold
@@ -797,6 +750,61 @@ void Server::TouchToolchains()
 #else
     // TODO:C we could update Windows timestamps too
 #endif
+}
+
+// FindOrRequestManifest
+//------------------------------------------------------------------------------
+ToolManifest * Server::FindOrRequestManifest( const ConnectionInfo * connection, uint64_t manifestId, bool holdsExtraInputs )
+{
+    ToolManifest ** found = m_Tools.FindDeref( manifestId );
+    if ( found == nullptr )
+    {
+        // first time seeing these files (tool chain or inputs)
+
+        // create manifest object
+        ToolManifest * manifest = FNEW( ToolManifest( manifestId, holdsExtraInputs ) );
+        manifest->SetUserData( (void *)connection ); // This connection owns synchronization
+        m_Tools.Append( manifest );
+
+        // request the manifest
+        const Protocol::MsgRequestManifest reqMsg( manifestId );
+        reqMsg.Send( connection );
+        return manifest;
+    }
+
+    ToolManifest * manifest = *found;
+    if ( manifest->IsSynchronized() )
+    {
+        return manifest;
+    }
+
+    // If we have an associated connection, we're already synchronizing
+    // on that connection and don't need to do anything.
+    // That may be a connection to another client or to the same client
+    const bool isSynchronizing = ( manifest->GetUserData() != nullptr );
+    if ( isSynchronizing == false )
+    {
+        // Take ownership of synchronization
+        manifest->SetUserData( (void *)connection );
+
+        const bool hasManifest = ( manifest->GetFiles().IsEmpty() == false );
+        if ( hasManifest )
+        {
+            // Missing some files - request any not already being sync'd
+            RequestMissingFiles( connection, manifest );
+        }
+        else
+        {
+            // Manifest was not sync'd. This can happen if disconnection
+            // occurs before the manifest was received.
+
+            // request manifest
+            const Protocol::MsgRequestManifest reqMsg( manifestId );
+            reqMsg.Send( connection );
+        }
+    }
+
+    return manifest;
 }
 
 // RequestMissingFiles
