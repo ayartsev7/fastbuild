@@ -7,6 +7,7 @@
 #include "Protocol.h"
 
 #include "Tools/FBuild/FBuildCore/FLog.h"
+#include "Tools/FBuild/FBuildCore/Graph/ObjectNode.h"
 #include "Tools/FBuild/FBuildCore/Helpers/ToolManifest.h"
 #include "Tools/FBuild/FBuildCore/WorkerPool/Job.h"
 #include "Tools/FBuild/FBuildCore/WorkerPool/JobQueueRemote.h"
@@ -162,6 +163,11 @@ bool Server::IsSynchingTool( AString & statusStr ) const
                 if ( cancelledManifests.Find( jMan ) )
                 {
                     RequestMissingFiles( otherCS->m_Connection, jMan );
+                }
+                ToolManifest * jExtraInputMan = j->GetExtraInputManifest();
+                if ( ( jExtraInputMan != nullptr ) && cancelledManifests.Find( jExtraInputMan ) )
+                {
+                    RequestMissingFiles( otherCS->m_Connection, jExtraInputMan );
                 }
             }
         }
@@ -358,16 +364,27 @@ void Server::Process( const ConnectionInfo * connection, const Protocol::MsgJob 
         const uint64_t toolId = msg->GetToolId();
         ASSERT( toolId );
 
+        // Jobs can need extra input files
+        const uint64_t extraInputManifestId = job->GetNode()->CastTo<ObjectNode>()->GetExtraInputManifestId();
+
         {
-            // Find or create the manifest
+            // Find or create the manifests
             MutexHolder manifestMH( m_ToolManifestsMutex );
 
             const bool toolchainManifest = false;
             ToolManifest * manifest = FindOrRequestManifest( connection, toolId, toolchainManifest );
             job->SetToolManifest( manifest );
+            bool synchronized = manifest->IsSynchronized();
 
-            // Is tool fully synchronized?
-            if ( manifest->IsSynchronized() )
+            if ( extraInputManifestId )
+            {
+                const bool extraInputsManifest = true;
+                ToolManifest * extraInputManifest = FindOrRequestManifest( connection, extraInputManifestId, extraInputsManifest );
+                job->SetExtraInputManifest( extraInputManifest );
+                synchronized = synchronized && extraInputManifest->IsSynchronized();
+            }
+
+            if ( synchronized )
             {
                 // we have all the files - we can do the job
                 JobQueueRemote::Get().QueueJob( job );
@@ -535,7 +552,7 @@ void Server::CheckWaitingJobs( const ToolManifest * manifest )
                 const ToolManifest * manifestForThisJob = job->GetToolManifest();
                 ASSERT( manifestForThisJob );
                 if ( manifestForThisJob == manifest )
-                {
+                    {
                     cs->m_WaitingJobs.EraseIndex( (size_t)i );
                     JobQueueRemote::Get().QueueJob( job );
                     PROTOCOL_DEBUG( "Server: Job %x can now be started\n", job );
