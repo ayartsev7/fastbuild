@@ -91,7 +91,8 @@ bool Server::IsSynchingTool( AString & statusStr ) const
             const bool synching = tool->GetSynchronizationStatus( synchDone, synchTotal );
             if ( synching )
             {
-                statusStr.Format( "Synchronizing Compiler %2.1f / %2.1f MiB\n",
+                statusStr.Format( "Synchronizing %s %2.1f / %2.1f MiB\n",
+                                  tool->HoldsExtraInputs() ? "Job Inputs" : "Compiler",
                                   (double)( (float)synchDone / (float)MEGABYTE ),
                                   (double)( (float)synchTotal / (float)MEGABYTE ) );
                 return true;
@@ -534,7 +535,7 @@ void Server::CheckWaitingJobs( const ToolManifest * manifest )
 {
     // queue for start any jobs that may now be ready
 #ifdef ASSERTS_ENABLED
-    bool atLeastOneJobStarted = false;
+    bool atLeastOneJobWaiting = false;
 #endif
 
     {
@@ -549,24 +550,34 @@ void Server::CheckWaitingJobs( const ToolManifest * manifest )
             for ( int32_t i = ( numJobs - 1 ); i >= 0; --i )
             {
                 Job * job = cs->m_WaitingJobs[ (size_t)i ];
-                const ToolManifest * manifestForThisJob = job->GetToolManifest();
-                ASSERT( manifestForThisJob );
-                if ( manifestForThisJob == manifest )
+                const ToolManifest * toolManifestForThisJob = job->GetToolManifest();
+                ASSERT( toolManifestForThisJob );
+                const ToolManifest * extraInputManifestForThisJob = job->GetExtraInputManifest();
+                if ( ( toolManifestForThisJob == manifest ) || ( extraInputManifestForThisJob == manifest ) )
+                {
+#ifdef ASSERTS_ENABLED
+                    atLeastOneJobWaiting = true;
+#endif
+
+                    // keep waiting until all manifests are synchronized
+                    if ( ( toolManifestForThisJob->IsSynchronized() == false ) ||
+                         ( ( extraInputManifestForThisJob != nullptr ) &&
+                           ( extraInputManifestForThisJob->IsSynchronized() == false ) ) )
                     {
+                        continue;
+                    }
+
                     cs->m_WaitingJobs.EraseIndex( (size_t)i );
                     JobQueueRemote::Get().QueueJob( job );
                     PROTOCOL_DEBUG( "Server: Job %x can now be started\n", job );
-#ifdef ASSERTS_ENABLED
-                    atLeastOneJobStarted = true;
-#endif
                 }
             }
         }
     }
 
-    // We should only have called this function when a ToolChain sync was complete
+    // We should only have called this function when a manifest sync was complete
     // so at least 1 job should have been waiting for it
-    ASSERT( atLeastOneJobStarted );
+    ASSERT( atLeastOneJobWaiting );
 }
 
 // ThreadFuncStatic
