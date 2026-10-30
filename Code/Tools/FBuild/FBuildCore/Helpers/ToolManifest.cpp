@@ -831,6 +831,31 @@ void ToolManifest::GetRemoteFilePath( uint32_t fileId, AString & remotePath ) co
     remotePath += relativePath;
 }
 
+// GetMirroredPath
+//------------------------------------------------------------------------------
+/*static*/ bool ToolManifest::GetMirroredPath( const AString & path, AString & root, AString & mirroredPath )
+{
+#if defined( __WINDOWS__ )
+    // "C:\Dir\File" -> "C:\", "C\Dir\File"
+    if ( ( path.GetLength() < 3 ) || ( path[ 1 ] != ':' ) || ( path[ 2 ] != NATIVE_SLASH ) )
+    {
+        return false; // UNC paths are not mirrored
+    }
+    root.Assign( path.Get(), path.Get() + 3 );
+    mirroredPath.Assign( path.Get(), path.Get() + 1 );
+    mirroredPath += ( path.Get() + 2 );
+#else
+    // "/dir/file" -> "/", "dir/file"
+    if ( fileName.BeginsWith( NATIVE_SLASH ) == false )
+    {
+        return false;
+    }
+    root = NATIVE_SLASH_STR;
+    mirroredPath = ( fileName.Get() + 1 );
+#endif
+    return true;
+}
+
 // GetRemotePath
 //------------------------------------------------------------------------------
 void ToolManifest::GetRemotePath( AString & path ) const

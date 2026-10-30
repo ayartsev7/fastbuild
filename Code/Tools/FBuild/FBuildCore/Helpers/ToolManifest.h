@@ -123,6 +123,7 @@ public:
     const char * GetRemoteEnvironmentString() const { return m_RemoteEnvironmentString; }
 
     static void GetRelativePath( const AString & root, const AString & otherFile, AString & otherFileRelativePath );
+    static bool GetMirroredPath( const AString & fileName, AString & root, AString & mirroredPath );
     static bool WriteSharedFile( const AString & fileName, const void * data, size_t dataSize );
 
 #if defined( __OSX__ ) || defined( __LINUX__ )
