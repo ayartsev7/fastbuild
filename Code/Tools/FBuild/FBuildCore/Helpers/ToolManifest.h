@@ -120,6 +120,8 @@ public:
 
     void GetRemotePath( AString & path ) const;
     void GetRemoteFilePath( uint32_t fileId, AString & exe ) const;
+    void GetRemoteFilePath( const AString & fileName, AString & remotePath ) const;
+    const AString & GetMainExecutableRootPath() const { return m_MainExecutableRootPath; }
     const char * GetRemoteEnvironmentString() const { return m_RemoteEnvironmentString; }
 
     static void GetRelativePath( const AString & root, const AString & otherFile, AString & otherFileRelativePath );
@@ -131,6 +133,8 @@ public:
 #endif
 
 private:
+    void GetFileSubPath( const AString & fileName, AString & subPath ) const;
+
     mutable Mutex m_Mutex;
 
     // Reflected

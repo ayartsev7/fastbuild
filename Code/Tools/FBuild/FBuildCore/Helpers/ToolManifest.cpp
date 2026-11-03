@@ -255,7 +255,7 @@ bool ToolManifest::DoBuild( bool skipHashing )
 
         // file name & sub-path (relative to remote folder)
         AStackString relativePath;
-        GetRelativePath( m_MainExecutableRootPath, f.GetName(), relativePath );
+        GetFileSubPath( f.GetName(), relativePath );
         *pos = xxHash::Calc32( relativePath );
         ++pos;
     }
@@ -821,14 +821,35 @@ void ToolManifest::TouchFiles() const
 //------------------------------------------------------------------------------
 void ToolManifest::GetRemoteFilePath( uint32_t fileId, AString & remotePath ) const
 {
+    GetRemoteFilePath( m_Files[ fileId ].GetName(), remotePath );
+}
+
+// GetRemoteFilePath
+//------------------------------------------------------------------------------
+void ToolManifest::GetRemoteFilePath( const AString & fileName, AString & remotePath ) const
+{
     // Get base directory
     GetRemotePath( remotePath );
     ASSERT( remotePath.EndsWith( NATIVE_SLASH ) );
 
     // Get relative path for file and append
     AStackString relativePath;
-    GetRelativePath( m_MainExecutableRootPath, m_Files[ fileId ].GetName(), relativePath );
+    GetFileSubPath( fileName, relativePath );
     remotePath += relativePath;
+}
+
+// GetFileSubPath
+//------------------------------------------------------------------------------
+void ToolManifest::GetFileSubPath( const AString & fileName, AString & subPath ) const
+{
+    // Extra inputs may have no common root (for example files on different drives), so a 
+    // mirrored absolute path is kept.
+    AStackString root;
+    if ( m_HoldsExtraInputs && GetMirroredPath( fileName, root, subPath ) )
+    {
+        return;
+    }
+    GetRelativePath( m_MainExecutableRootPath, fileName, subPath );
 }
 
 // GetMirroredPath
