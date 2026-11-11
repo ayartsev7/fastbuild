@@ -586,6 +586,7 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
     Args fullArgs;
     AStackString tmpDirectoryName;
     AStackString tmpFileName;
+    AStackString vfsOverlayFileName;
     const bool useExtraInputs = ( job->IsLocal() == false ) && ( m_ExtraInputManifestId != 0 );
     if ( usePreProcessedOutput )
     {
@@ -595,6 +596,10 @@ Node::BuildResult ObjectNode::DoBuildWithPreProcessor2( Job * job, bool useDeopt
             if ( WriteSourceFileToExtraInputs( job, tmpDirectoryName, tmpFileName ) == false )
             {
                 return BuildResult::eFailed; // WriteSourceFileToExtraInputs will have emitted an error
+            }
+            if ( m_UseVFSOverlayForExtraInputs && ( WriteVFSOverlayForExtraInputs( job, vfsOverlayFileName ) == false ) )
+            {
+                return BuildResult::eFailed; // WriteVFSOverlayForExtraInputs will have emitted an error
             }
         }
         else if ( WriteTmpFile( job, tmpDirectoryName, tmpFileName ) == false )
@@ -2432,6 +2437,93 @@ bool ObjectNode::WriteSourceFileToExtraInputs( Job * job, AString & inputsDirect
 
     job->OwnData( nullptr, 0, false ); // free the buffer
 
+    return true;
+}
+
+// AddClientRoot
+//------------------------------------------------------------------------------
+static void AddClientRoot( const AString & path, Array<AString> & roots )
+{
+    AStackString root;
+    AStackString mirroredPath;
+    if ( ToolManifest::GetMirroredPath( path, root, mirroredPath ) == false )
+    {
+        return;
+    }
+    for ( const AString & existingRoot : roots )
+    {
+        if ( existingRoot.EqualsI( root ) )
+        {
+            return;
+        }
+    }
+    roots.EmplaceBack( root );
+}
+
+// AppendSingleQuoted
+//------------------------------------------------------------------------------
+static void AppendSingleQuoted( const AString & string, AString & out )
+{
+    // Single-quoted YAML strings keep backslashes as is
+    AStackString quoted( string );
+    quoted.Replace( "'", "''" );
+    out += '\'';
+    out += quoted;
+    out += '\'';
+}
+
+// WriteVFSOverlayForExtraInputs
+//------------------------------------------------------------------------------
+bool ObjectNode::WriteVFSOverlayForExtraInputs( Job * job, AString & overlayFileName ) const
+{
+    const ToolManifest * extraInputManifest = job->GetExtraInputManifest();
+    ASSERT( extraInputManifest );
+
+    // Every client root (drive) used by the job is remapped to its mirror in the extra inputs
+    Array<AString> roots;
+    AddClientRoot( extraInputManifest->GetMainExecutableRootPath(), roots );
+    AddClientRoot( GetSourceFile()->GetName(), roots );
+    for ( const ToolManifestFile & file : extraInputManifest->GetFiles() )
+    {
+        AddClientRoot( file.GetName(), roots );
+    }
+
+    AStackString<4096> yaml( "{\n  'version': 0,\n  'use-external-names': false,\n  'roots': [\n" );
+    for ( const AString & root : roots )
+    {
+        if ( &root != roots.Begin() )
+        {
+            yaml += ",\n";
+        }
+
+        AStackString remoteRoot;
+        extraInputManifest->GetRemoteFilePath( root, remoteRoot );
+        remoteRoot.TrimEnd( NATIVE_SLASH );
+
+        yaml += "    { 'type': 'directory-remap', 'name': ";
+        AppendSingleQuoted( root, yaml );
+        yaml += ", 'external-contents': ";
+        AppendSingleQuoted( remoteRoot, yaml );
+        yaml += " }";
+    }
+    yaml += "\n  ]\n}\n";
+
+    // The overlay is shared by all jobs with the same roots
+    extraInputManifest->GetRemotePath( overlayFileName );
+    overlayFileName.AppendFormat( "vfs.%016" PRIx64 ".yaml", xxHash3::Calc64( yaml ) );
+    return WriteExtraInputFile( job, overlayFileName, yaml.Get(), yaml.GetLength() );
+}
+
+// WriteExtraInputFile
+//------------------------------------------------------------------------------
+bool ObjectNode::WriteExtraInputFile( Job * job, const AString & fileName, const void * data, size_t dataSize ) const
+{
+    if ( ToolManifest::WriteSharedFile( fileName, data, dataSize ) == false )
+    {
+        job->Error( "Failed to write input file. Error: %s File: '%s' Target: '%s'", LAST_ERROR_STR, fileName.Get(), GetName().Get() );
+        job->OnSystemError();
+        return false;
+    }
     return true;
 }
 

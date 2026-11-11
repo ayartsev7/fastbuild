@@ -244,6 +244,8 @@ protected:
     void TransferPreprocessedData( const char * data, size_t dataSize, Job * job ) const;
     bool WriteTmpFile( Job * job, AString & tmpDirectory, AString & tmpFileName ) const;
     bool WriteSourceFileToExtraInputs( Job * job, AString & inputsDirectory, AString & sourceFileName ) const;
+    bool WriteVFSOverlayForExtraInputs( Job * job, AString & overlayFileName ) const;
+    bool WriteExtraInputFile( Job * job, const AString & fileName, const void * data, size_t dataSize ) const;
     BuildResult BuildFinalOutput( Job * job, const Args & fullArgs, const AString & remoteWorkingDir = AString::GetEmpty() ) const;
 
     static void HandleSystemFailures( Job * job, int result, const AString & stdOut, const AString & stdErr );
