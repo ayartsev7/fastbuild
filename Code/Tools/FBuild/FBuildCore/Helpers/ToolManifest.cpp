@@ -842,7 +842,7 @@ void ToolManifest::GetRemoteFilePath( const AString & fileName, AString & remote
 //------------------------------------------------------------------------------
 void ToolManifest::GetFileSubPath( const AString & fileName, AString & subPath ) const
 {
-    // Extra inputs may have no common root (for example files on different drives), so a 
+    // Extra inputs may have no common root (for example files on different drives), so a
     // mirrored absolute path is kept.
     AStackString root;
     if ( m_HoldsExtraInputs && GetMirroredPath( fileName, root, subPath ) )
