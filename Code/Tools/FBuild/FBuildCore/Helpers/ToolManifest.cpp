@@ -867,12 +867,12 @@ void ToolManifest::GetFileSubPath( const AString & fileName, AString & subPath )
     mirroredPath += ( path.Get() + 2 );
 #else
     // "/dir/file" -> "/", "dir/file"
-    if ( fileName.BeginsWith( NATIVE_SLASH ) == false )
+    if ( path.BeginsWith( NATIVE_SLASH ) == false )
     {
         return false;
     }
     root = NATIVE_SLASH_STR;
-    mirroredPath = ( fileName.Get() + 1 );
+    mirroredPath = ( path.Get() + 1 );
 #endif
     return true;
 }
